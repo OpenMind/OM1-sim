@@ -1,0 +1,102 @@
+{
+  mode: "peer",
+  "listen": {
+    "endpoints": ["tcp/127.0.0.1:7447"]
+  },
+  "scouting": {
+    "multicast": {
+      "enabled": false
+    },
+    "gossip": {
+      "enabled": false
+    }
+  },
+  plugins: {
+    ros2dds: {
+      nodename: "zenoh_bridge_ros2dds_sim",
+      domain: 0,
+      allow: {
+        publishers: [
+                      // Robot state (needed by OM1 CycloneDDS subscribers)
+                      ".*/lowstate",
+                      ".*/lf/lowstate",
+                      ".*/sportmodestate",
+                      ".*/lf/sportmodestate",
+                      ".*/utlidar/robot_pose",
+                      ".*/odom",
+
+                      // OM system topics
+                      ".*/om/paths",
+                      ".*/om/paths/r50",
+                      ".*/om/paths/r100",
+                      ".*/om/paths/r200",
+                      ".*/om/ai/request",
+                      ".*/om/ai/response",
+                      ".*/om/asr/text",
+                      ".*/om/avatar/request",
+                      ".*/om/avatar/response",
+
+                      // Sensor data
+                      ".*/scan",
+                      ".*/utlidar/cloud_deskewed",
+                      ".*/rgb_image",
+                      ".*/camera/realsense2_camera_node/color/image_raw",
+                      ".*/camera/realsense2_camera_node/color/camera_info",
+
+                      // Motion control
+                      ".*/cmd_vel",
+
+                      // Transforms
+                      ".*/tf",
+                      ".*/tf_static",
+
+                      // Input devices
+                      ".*/joy",
+                    ],
+        subscribers: [
+                      // Unitree API (OM1 sends sport commands via CycloneDDS)
+                      ".*/api/sport/request",
+
+                      // Robot state (bidirectional for state monitoring)
+                      ".*/lowstate",
+                      ".*/lf/lowstate",
+                      ".*/sportmodestate",
+                      ".*/lf/sportmodestate",
+                      ".*/utlidar/robot_pose",
+                      ".*/odom",
+
+                      // OM system topics
+                      ".*/om/paths",
+                      ".*/om/ai/request",
+                      ".*/om/ai/response",
+                      ".*/om/asr/text",
+                      ".*/om/avatar/request",
+                      ".*/om/avatar/response",
+
+                      // Sensor data
+                      ".*/scan",
+                      ".*/utlidar/cloud_deskewed",
+                      ".*/rgb_image",
+
+                      // Motion control
+                      ".*/cmd_vel",
+
+                      // Transforms
+                      ".*/tf",
+                      ".*/tf_static",
+                     ],
+        service_servers: [
+          ".*/api/sport/request",
+          ".*/api/sport/response",
+        ],
+        service_clients: [
+          ".*/api/sport/request",
+          ".*/api/sport/response",
+        ],
+      },
+      queries_timeout: {
+        default: 10.0,
+      }
+    }
+  }
+}
