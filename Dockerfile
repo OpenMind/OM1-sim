@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-depth-image-proc \
     ros-humble-rosidl-default-generators \
     ros-humble-rosidl-default-runtime \
+    ros-humble-rosidl-generator-dds-idl \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
