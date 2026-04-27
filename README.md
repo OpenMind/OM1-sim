@@ -37,10 +37,9 @@ OM1 (Python/LLM) <--> Zenoh <--> zenoh-bridge-ros2dds <--> ROS2 (OM1-sim) <--> G
 - ROS 2 Humble
 - Gazebo (Harmonic or Fortress)
 - [OM1](https://github.com/OpenMind/OM1) for the AI agent
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
 
 ## Setup
-
-### Option 1: Native Build
 
 ```bash
 # Install ROS 2 dependencies
@@ -54,46 +53,40 @@ sudo apt install ros-humble-ros-gz-sim ros-humble-ros-gz-bridge \
 echo "deb [trusted=yes] https://download.eclipse.org/zenoh/debian-repo/ /" | sudo tee /etc/apt/sources.list.d/zenoh.list
 sudo apt update && sudo apt install zenoh-bridge-ros2dds
 
-# Build the workspace
-source /opt/ros/humble/setup.bash
+# Clone and build
+git clone https://github.com/OpenMind/OM1-sim.git
 cd OM1-sim
+source /opt/ros/humble/setup.bash
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-### Option 2: Docker
-
-```bash
-docker compose build
-```
-
 ## Running
 
-### 1. Start the simulation
+### 1. Start the Zenoh bridge
 
 ```bash
-# Native
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+zenoh-bridge-ros2dds -c ./zenoh/zenoh_bridge_config.json5
+```
+
+### 2. Launch the Go2 simulation (in a separate terminal)
+
+```bash
+source /opt/ros/humble/setup.bash
 source install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 launch go2_sim go2_launch.py
-
-# Or with Docker (headless, no RViz)
-docker compose up
 ```
 
-### 2. Start the Zenoh bridge (in a separate terminal, if running natively)
-
-```bash
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-zenoh-bridge-ros2dds -c zenoh/zenoh_bridge_config.json5
-```
-
-### 3. Start OM1 with the simulation config
+### 3. Start OM1 (in a separate terminal)
 
 ```bash
 # In the OM1 repo
 cd ../OM1
-python src/run.py --config config/go2_sim_autonomy.json5
+uv run src/run.py go2_sim_autonomy
 ```
 
 ## Configuration
