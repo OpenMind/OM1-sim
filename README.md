@@ -9,12 +9,6 @@ This repo provides two simulation environments:
 | **Gazebo** | `gazebo_sim/` | Go2 | Lightweight sim with lidar-based obstacle avoidance |
 | **Isaac Sim** | `isaac_sim/` | Go2, G1 | High-fidelity NVIDIA sim with cameras, LiDAR, IMU |
 
-## Architecture
-
-```
-OM1 (Python/LLM) <--> Zenoh <--> zenoh-bridge-ros2dds <--> ROS2 <--> Simulator
-```
-
 ---
 
 ## Gazebo Simulation
