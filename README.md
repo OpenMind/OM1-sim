@@ -57,12 +57,6 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-### Setup (Docker)
-
-```bash
-docker compose build
-```
-
 ### Running Gazebo
 
 **Terminal 1 — Simulation:**
@@ -70,9 +64,6 @@ docker compose build
 source install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 launch go2_sim go2_launch.py
-
-# Or with Docker (headless)
-docker compose up
 ```
 
 **Terminal 2 — Zenoh bridge:**
@@ -243,8 +234,6 @@ OM1-sim/
 ├── unitree_go/           # Unitree Go messages (shared)
 ├── cyclonedds/           # CycloneDDS config
 ├── zenoh/                # Zenoh bridge config
-├── Dockerfile
-├── docker-compose.yml
 └── README.md
 ```
 

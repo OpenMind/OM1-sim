@@ -1,6 +1,5 @@
 import os
 
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -8,12 +7,7 @@ from launch.actions import (
     SetEnvironmentVariable,
     TimerAction,
 )
-from launch.substitutions import (
-    EnvironmentVariable,
-    FindExecutable,
-    LaunchConfiguration,
-    PathJoinSubstitution,
-)
+from launch.substitutions import FindExecutable, LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -52,14 +46,12 @@ def generate_launch_description():
 
     isaac_sim_src = os.path.join(om1_sim_dir, "isaac_sim")
     isaac_sim_venv = os.path.join(isaac_sim_src, "env_isaacsim")
-    isaac_sim_run_py = os.path.join(isaac_sim_src, "run.py")
 
     cyclonedds_xml = os.path.join(om1_sim_dir, "cyclonedds", "cyclonedds.xml")
 
     ros2_bridge_lib = os.path.join(
         isaac_sim_venv,
-        "lib/python3.11/site-packages/isaacsim/exts/"
-        "isaacsim.ros2.bridge/humble/lib",
+        "lib/python3.11/site-packages/isaacsim/exts/" "isaacsim.ros2.bridge/humble/lib",
     )
 
     # OM1-ros2-sdk (sibling directory)
@@ -73,8 +65,6 @@ def generate_launch_description():
     # --- Launch Arguments -----------------------------------------------------
 
     robot_type = LaunchConfiguration("robot_type")
-    policy_dir = LaunchConfiguration("policy_dir")
-    launch_sensors = LaunchConfiguration("launch_sensors")
 
     declare_robot_type = DeclareLaunchArgument(
         "robot_type",
@@ -109,13 +99,19 @@ def generate_launch_description():
         FindExecutable(name="bash"),
         "-c",
         [
-            "source ", isaac_sim_venv, "/bin/activate && "
+            "source ",
+            isaac_sim_venv,
+            "/bin/activate && "
             "export ROS_DISTRO=humble && "
             "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && "
-            "export CYCLONEDDS_URI=file://", cyclonedds_xml, " && "
-            "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:", ros2_bridge_lib, " && "
-            "cd ", isaac_sim_src, " && "
-            "python3 run.py --robot_type ", robot_type,
+            "export CYCLONEDDS_URI=file://",
+            cyclonedds_xml,
+            " && " "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:",
+            ros2_bridge_lib,
+            " && " "cd ",
+            isaac_sim_src,
+            " && " "python3 run.py --robot_type ",
+            robot_type,
         ],
     ]
 
@@ -176,11 +172,13 @@ def generate_launch_description():
             FindExecutable(name="bash"),
             "-c",
             [
-                "source /opt/ros/humble/setup.bash && "
-                "source ", om1_ros2_sdk_setup, " && "
+                "source /opt/ros/humble/setup.bash && " "source ",
+                om1_ros2_sdk_setup,
+                " && "
                 "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && "
-                "export CYCLONEDDS_URI=file://", cyclonedds_xml, " && "
-                "ros2 launch go2_sdk sensor_launch.py use_sim:=true",
+                "export CYCLONEDDS_URI=file://",
+                cyclonedds_xml,
+                " && " "ros2 launch go2_sdk sensor_launch.py use_sim:=true",
             ],
         ]
 

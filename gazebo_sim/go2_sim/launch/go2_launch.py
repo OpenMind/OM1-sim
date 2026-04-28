@@ -32,17 +32,15 @@ def generate_launch_description():
     """
     use_sim_time = LaunchConfiguration("use_sim_time")
 
-    go2_sim = launch_ros.substitutions.FindPackageShare(
-        package="go2_sim"
-    ).find("go2_sim")
+    go2_sim = launch_ros.substitutions.FindPackageShare(package="go2_sim").find(
+        "go2_sim"
+    )
     go2_description = launch_ros.substitutions.FindPackageShare(
         package="go2_description"
     ).find("go2_description")
 
     joints_config = os.path.join(go2_sim, "config/joints/joints.yaml")
-    ros_control_config = os.path.join(
-        go2_sim, "config/ros_control/ros_control.yaml"
-    )
+    ros_control_config = os.path.join(go2_sim, "config/ros_control/ros_control.yaml")
     gait_config = os.path.join(go2_sim, "config/gait/gait.yaml")
     links_config = os.path.join(go2_sim, "config/links/links.yaml")
     default_model_path = os.path.join(go2_description, "urdf/unitree_go2_robot.xacro")
@@ -167,10 +165,22 @@ def generate_launch_description():
         executable="static_transform_publisher",
         parameters=[{"use_sim_time": use_sim_time}],
         arguments=[
-            "--x", "0", "--y", "0", "--z", "0",
-            "--roll", "0", "--pitch", "0", "--yaw", "0",
-            "--frame-id", "map",
-            "--child-frame-id", "odom",
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--z",
+            "0",
+            "--roll",
+            "0",
+            "--pitch",
+            "0",
+            "--yaw",
+            "0",
+            "--frame-id",
+            "map",
+            "--child-frame-id",
+            "odom",
         ],
         condition=IfCondition(LaunchConfiguration("publish_map_tf")),
     )
@@ -182,10 +192,22 @@ def generate_launch_description():
         executable="static_transform_publisher",
         parameters=[{"use_sim_time": use_sim_time}],
         arguments=[
-            "--x", "0", "--y", "0", "--z", "0",
-            "--roll", "0", "--pitch", "0", "--yaw", "0",
-            "--frame-id", "base_footprint",
-            "--child-frame-id", "base_link",
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--z",
+            "0",
+            "--roll",
+            "0",
+            "--pitch",
+            "0",
+            "--yaw",
+            "0",
+            "--frame-id",
+            "base_footprint",
+            "--child-frame-id",
+            "base_link",
         ],
     )
 
@@ -218,12 +240,18 @@ def generate_launch_description():
         executable="create",
         output="screen",
         arguments=[
-            "-name", LaunchConfiguration("robot_name"),
-            "-topic", "robot_description",
-            "-x", LaunchConfiguration("world_init_x"),
-            "-y", LaunchConfiguration("world_init_y"),
-            "-z", LaunchConfiguration("world_init_z"),
-            "-Y", LaunchConfiguration("world_init_heading"),
+            "-name",
+            LaunchConfiguration("robot_name"),
+            "-topic",
+            "robot_description",
+            "-x",
+            LaunchConfiguration("world_init_x"),
+            "-y",
+            LaunchConfiguration("world_init_y"),
+            "-z",
+            LaunchConfiguration("world_init_z"),
+            "-Y",
+            LaunchConfiguration("world_init_heading"),
         ],
     )
 
@@ -261,7 +289,8 @@ def generate_launch_description():
                 executable="spawner",
                 output="screen",
                 arguments=[
-                    "--controller-manager-timeout", "120",
+                    "--controller-manager-timeout",
+                    "120",
                     "joint_states_controller",
                 ],
                 parameters=[{"use_sim_time": use_sim_time}],
@@ -277,7 +306,8 @@ def generate_launch_description():
                 executable="spawner",
                 output="screen",
                 arguments=[
-                    "--controller-manager-timeout", "120",
+                    "--controller-manager-timeout",
+                    "120",
                     "joint_group_effort_controller",
                 ],
                 parameters=[{"use_sim_time": use_sim_time}],
@@ -290,7 +320,8 @@ def generate_launch_description():
         actions=[
             ExecuteProcess(
                 cmd=[
-                    "bash", "-c",
+                    "bash",
+                    "-c",
                     "echo 'Checking controller status:' && ros2 control list_controllers",
                 ],
                 output="screen",
