@@ -22,3 +22,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Isaac Sim venv
+isaac_sim/env_isaacsim/
+isaac_sim/__pycache__/
