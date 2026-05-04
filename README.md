@@ -1,45 +1,36 @@
 # OM1-sim
 
-Gazebo simulation package for the Unitree Go2 robot, designed to work with [OM1](https://github.com/OpenMind/OM1).
+Simulation packages for Unitree robots, designed to work with [OM1](https://github.com/OpenMind/OM1).
 
-This repo provides a minimal simulation environment with lidar-based obstacle avoidance — no SLAM, Nav2, or mapping stack required.
+This repo provides two simulation environments:
 
-## Architecture
+| Simulator | Directory | Robots | Description |
+|-----------|-----------|--------|-------------|
+| **Gazebo** | `gazebo_sim/` | Go2 | Lightweight sim with lidar-based obstacle avoidance |
+| **Isaac Sim** | `isaac_sim/` | Go2, G1 | High-fidelity NVIDIA sim with cameras, LiDAR, IMU |
 
-```
-OM1 (Python/LLM) <--> Zenoh <--> zenoh-bridge-ros2dds <--> ROS2 (OM1-sim) <--> Gazebo
-```
+---
+
+## Gazebo Simulation
 
 ### What's included
 
 | Component | Purpose |
 |-----------|---------|
-| `go2_sim` | Main simulation package: launch file, topic remapping, sport API bridge, battery mock |
-| `om_path` | Lidar-based path feasibility node — publishes safe movement directions to `/om/paths` |
-| `go2_description` | Robot URDF, meshes, and Gazebo worlds |
-| `champ` / `champ_base` | Quadruped locomotion controller (CHAMP framework) |
-| `champ_msgs` | CHAMP custom message definitions |
-| `unitree_api` / `unitree_go` | Unitree message definitions |
-| `om_api` | OpenMind message definitions (Paths, etc.) |
+| `gazebo_sim/go2_sim` | Launch file, topic remapping, sport API bridge, battery mock |
+| `gazebo_sim/om_path` | Lidar-based path feasibility — publishes to `/om/paths` |
+| `gazebo_sim/go2_description` | Robot URDF, meshes, and Gazebo worlds |
+| `gazebo_sim/champ` / `champ_base` | Quadruped locomotion controller (CHAMP framework) |
+| `gazebo_sim/champ_msgs` | CHAMP custom message definitions |
+| `unitree_api` / `unitree_go` | Unitree message definitions (shared) |
+| `om_api` | OpenMind message definitions (shared) |
 
-### What's NOT included (handled by OM1-ros2-sdk for real robots)
-
-- SLAM (`slam_toolbox`)
-- Nav2 navigation stack
-- Frontier exploration
-- Orchestrator / REST API
-- Localization (AMCL, scan matching)
-- D435 depth camera processing
-- Watchdog
-
-## Prerequisites
+### Prerequisites
 
 - ROS 2 Humble
 - Gazebo (Harmonic or Fortress)
-- [OM1](https://github.com/OpenMind/OM1) for the AI agent
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
 
-## Setup
+### Setup (Native)
 
 ```bash
 # Install ROS 2 dependencies
@@ -53,51 +44,35 @@ sudo apt install ros-humble-ros-gz-sim ros-humble-ros-gz-bridge \
 echo "deb [trusted=yes] https://download.eclipse.org/zenoh/debian-repo/ /" | sudo tee /etc/apt/sources.list.d/zenoh.list
 sudo apt update && sudo apt install zenoh-bridge-ros2dds
 
-# Clone and build
-git clone https://github.com/OpenMind/OM1-sim.git
-cd OM1-sim
+# Build
 source /opt/ros/humble/setup.bash
+cd OM1-sim
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-## Running
+### Running Gazebo
 
-### 1. Start the Zenoh bridge
-
+**Terminal 1 — Simulation:**
 ```bash
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-zenoh-bridge-ros2dds -c ./zenoh/zenoh_bridge_config.json5
-```
-
-### 2. Launch the Go2 simulation (in a separate terminal)
-
-```bash
-source /opt/ros/humble/setup.bash
 source install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 launch go2_sim go2_launch.py
 ```
 
-### 3. Start OM1 (in a separate terminal)
-
+**Terminal 2 — Zenoh bridge:**
 ```bash
-# In the OM1 repo
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+zenoh-bridge-ros2dds -c zenoh/zenoh_bridge_config.json5
+```
+
+**Terminal 3 — OM1:**
+```bash
 cd ../OM1
 uv run src/run.py go2_sim_autonomy
 ```
 
-## Configuration
-
-The corresponding OM1 config is `OM1/config/go2_sim_autonomy.json5`. It provides:
-
-- **Autonomy mode**: Move around with lidar-based obstacle avoidance
-- **Conversation mode**: Chat with the robot
-- **Guard mode**: Autonomous patrol with status reports
-
-## Launch Arguments
+### Gazebo Launch Arguments
 
 | Argument | Default | Description |
 |----------|---------|-------------|
@@ -108,16 +83,152 @@ The corresponding OM1 config is `OM1/config/go2_sim_autonomy.json5`. It provides
 | `world_init_x/y/z` | `0/0/0.375` | Initial robot position |
 | `publish_map_tf` | `true` | Publish static map→odom TF |
 
-## Data Flow
+---
+
+## Isaac Sim Simulation
+
+### Features
+
+- **Isaac Sim**: Realistic physics simulation of Unitree Go2 and G1
+- **Cameras**: RealSense depth + RGB, Go2 front camera
+- **LiDAR**: Unitree L1 and Velodyne VLP-16 (2D scan)
+- **IMU**: Simulated IMU sensor
+- **ROS 2 Integration**: Full topic publishing (images, point clouds, odometry, TF, joint states)
+
+### Prerequisites
+
+- NVIDIA GPU with RTX support
+- ROS 2 Humble
+- CycloneDDS (`sudo apt install ros-humble-rmw-cyclonedds-cpp`)
+
+### Setup
+
+**Step 1: Build the ROS 2 workspace** (if not already done for Gazebo):
+
+```bash
+source /opt/ros/humble/setup.bash
+cd OM1-sim
+rosdep update
+rosdep install --from-paths . --ignore-src -r -y
+colcon build
+```
+
+**Step 2: Install Isaac Sim** (in a separate Python 3.11 venv):
+
+```bash
+cd OM1-sim/isaac_sim
+
+uv venv --python 3.11 --seed env_isaacsim
+source env_isaacsim/bin/activate
+
+# Install IsaacSim 5.1
+pip install "isaacsim[all,extscache]==5.1.0" --extra-index-url https://pypi.nvidia.com
+
+# Install CUDA-enabled PyTorch
+pip install -U torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu128
+
+# Verify installation
+isaacsim
+```
+
+### Setup OM1-ros2-sdk (required for sensor/path nodes)
+
+The Isaac Sim launch file automatically starts sensor nodes (om_path, obstacle detection, traversability) from [OM1-ros2-sdk](https://github.com/OpenMind/OM1-ros2-sdk). Build it as a sibling directory:
+
+```bash
+cd ~/Documents/GitHub
+git clone https://github.com/OpenMind/OM1-ros2-sdk.git
+cd OM1-ros2-sdk
+source /opt/ros/humble/setup.bash
+colcon build --packages-up-to go2_sdk --packages-ignore lto-test
+```
+
+### Running Isaac Sim
+
+**Terminal 1 — Simulation:**
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+# Go2 (default) — launches Isaac Sim + bridge nodes + sensor nodes
+ros2 launch isaac_sim isaac_sim_launch.py
+
+# G1 humanoid
+ros2 launch isaac_sim isaac_sim_launch.py robot_type:=g1
+
+# Without sensor nodes (if OM1-ros2-sdk is not built)
+ros2 launch isaac_sim isaac_sim_launch.py launch_sensors:=false
+```
+
+**Terminal 2 — Zenoh bridge:**
+
+```bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+zenoh-bridge-ros2dds -c zenoh/zenoh_bridge_config.json5
+```
+
+**Terminal 3 — OM1:**
+
+```bash
+cd ../OM1
+uv run src/run.py go2_sim_autonomy
+```
+
+### Isaac Sim Keyboard Controls
+
+| Key | Action |
+|-----|--------|
+| `↑` / `Numpad 8` | Move forward |
+| `↓` / `Numpad 2` | Move backward |
+| `←` / `Numpad 4` | Strafe left |
+| `→` / `Numpad 6` | Strafe right |
+| `N` / `Numpad 7` | Rotate left |
+| `M` / `Numpad 9` | Rotate right |
+
+### Isaac Sim Launch Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `robot_type` | `go2` | `go2` or `g1` |
+| `policy_dir` | auto | Path to policy directory |
+| `launch_sensors` | `true` | Launch sensor nodes from OM1-ros2-sdk |
+
+### Isaac Sim CLI Options (run.py)
+
+These are passed directly if running `run.py` manually (advanced usage):
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--robot_type` | `go2` | `go2` or `g1` |
+| `--policy_dir` | auto | Path to policy directory |
+
+---
+
+## Repository Structure
 
 ```
-Gazebo /scan (LaserScan)
-    --> om_path node --> /om/paths
-        --> Zenoh bridge --> om/paths (Zenoh topic)
-            --> OM1 SimplePathsProvider
-                --> LLM decides direction
-                    --> SportClient --> /api/sport/request
-                        --> go2_sport_node --> /cmd_vel --> Gazebo
+OM1-sim/
+├── gazebo_sim/           # Gazebo simulation packages
+│   ├── go2_sim/          # Launch, sport API bridge, battery mock
+│   ├── go2_description/  # URDF, meshes, worlds
+│   ├── om_path/          # Lidar-based path feasibility
+│   ├── champ/            # Quadruped locomotion controller
+│   ├── champ_base/       # CHAMP base package
+│   └── champ_msgs/       # CHAMP message definitions
+├── isaac_sim/            # Isaac Sim simulation
+│   ├── launch/           # ROS2 launch file (isaac_sim_launch.py)
+│   ├── run.py            # Main simulation script
+│   ├── utils.py          # ROS2 OmniGraph utilities
+│   ├── assets/           # Robot USD models (Go2, G1)
+│   └── checkpoints/      # Pre-trained locomotion policies
+├── om_api/               # OpenMind message definitions (shared)
+├── unitree_api/          # Unitree API messages (shared)
+├── unitree_go/           # Unitree Go messages (shared)
+├── cyclonedds/           # CycloneDDS config
+├── zenoh/                # Zenoh bridge config
+└── README.md
 ```
 
 ## License

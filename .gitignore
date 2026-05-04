@@ -25,4 +25,12 @@ Thumbs.db
 
 # Isaac Sim heavy binary assets — populate manually from go2_isaac_sim/standalone
 # (Modern_Apartment.usdz ~101M, human.usdz ~20M, USD configuration dirs ~46M)
-isaac_sim/assets/
+isaac_sim/assets/environment/
+isaac_sim/assets/human/
+isaac_sim/assets/go2/usd/
+isaac_sim/assets/g1/usd/
+isaac_sim/assets/tron1/usd/
+
+# Isaac Sim venv
+isaac_sim/env_isaacsim/
+isaac_sim/__pycache__/
