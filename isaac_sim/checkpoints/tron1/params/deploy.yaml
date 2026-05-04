@@ -1,0 +1,48 @@
+# TRON1 WheelFoot (WF_TRON1A) deployment configuration
+# 8 DOF: 6 leg joints (position control) + 2 wheel joints (velocity control)
+# Joint order: abad_L, abad_R, hip_L, hip_R, knee_L, knee_R, wheel_L, wheel_R
+
+step_dt: 0.02
+decimation: 4
+history_length: 10
+
+# No joint reordering needed - sim order matches SDK order
+joint_ids_map: null
+
+# 8 joints total
+stiffness: [40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 0.0, 0.0]
+damping: [2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 0.8, 0.8]
+default_joint_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+# Leg joints are first 6, wheel joints are last 2
+num_leg_joints: 6
+num_wheel_joints: 2
+
+commands:
+  base_velocity:
+    ranges:
+      lin_vel_x: [-0.7, 0.7]
+      lin_vel_y: [-0.5, 0.5]
+      ang_vel_z: [-3.14159, 3.14159]
+
+actions:
+  leg:
+    scale: 0.25
+    use_default_offset: true
+  wheel:
+    scale: 1.0
+
+observations:
+  base_ang_vel:
+    scale: [0.25, 0.25, 0.25]
+  projected_gravity:
+    scale: [1.0, 1.0, 1.0]
+  joint_pos_rel:
+    # Only 6 leg joints (no wheels)
+    scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  joint_vel_rel:
+    # All 8 joints
+    scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+  last_action:
+    # All 8 actions
+    scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
