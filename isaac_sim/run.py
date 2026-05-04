@@ -1578,12 +1578,12 @@ def main():
     parser.add_argument(
         "--environment",
         type=str,
-        default="apartment",
+        default="warehouse",
         choices=["warehouse", "apartment"],
         help="Environment to load: warehouse or apartment",
     )
     # Human model arguments
-    parser.add_argument("--no_human", action="store_true", help="Disable human model")
+    parser.add_argument("--human", action="store_true", help="Enable human pedestrian model")
     parser.add_argument(
         "--human_cmd_topic",
         type=str,
@@ -1658,7 +1658,7 @@ def main():
             enable_sensors=not args.no_sensors,
             enable_keyboard=not args.no_keyboard,
             environment=args.environment,
-            enable_human=not args.no_human,
+            enable_human=args.human,
             human_cmd_topic=args.human_cmd_topic,
             human_pos=(args.human_x, args.human_y, args.human_z),
             human_yaw=math.radians(args.human_yaw),
@@ -1703,13 +1703,13 @@ def main():
         )
         simulation_app.update()
 
-        # Start lowstate publisher for battery simulation and auto-charging
-        ros_utils.setup_lowstate_publisher()
-        simulation_app.update()
+        # Lowstate is launched by the launch files; uncomment to spawn in-process instead.
+        # ros_utils.setup_lowstate_publisher()
+        # simulation_app.update()
 
         runner.run(real_time=args.real_time)
     finally:
-        ros_utils.stop_lowstate_publisher()
+        # ros_utils.stop_lowstate_publisher()
         simulation_app.close()
 
 

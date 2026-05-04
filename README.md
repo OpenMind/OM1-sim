@@ -7,7 +7,7 @@ This repo provides two simulation environments:
 | Simulator | Directory | Robots | Description |
 |-----------|-----------|--------|-------------|
 | **Gazebo** | `gazebo_sim/` | Go2 | Lightweight sim with lidar-based obstacle avoidance |
-| **Isaac Sim** | `isaac_sim/` | Go2, G1 | High-fidelity NVIDIA sim with cameras, LiDAR, IMU |
+| **Isaac Sim** | `isaac_sim/` | Go2, G1, TRON1 | High-fidelity NVIDIA sim with cameras, LiDAR, IMU |
 
 ---
 
@@ -89,11 +89,13 @@ uv run src/run.py go2_sim_autonomy
 
 ### Features
 
-- **Isaac Sim**: Realistic physics simulation of Unitree Go2 and G1
+- **Isaac Sim**: Realistic physics simulation of Unitree Go2, G1, and TRON1
 - **Cameras**: RealSense depth + RGB, Go2 front camera
 - **LiDAR**: Unitree L1 and Velodyne VLP-16 (2D scan)
 - **IMU**: Simulated IMU sensor
 - **ROS 2 Integration**: Full topic publishing (images, point clouds, odometry, TF, joint states)
+- **Lowstate publisher**: mock `/lowstate`, `/lf/lowstate` with battery drain/charge sim
+- **Optional scenery**: apartment environment, human pedestrian, AprilTag charging dock
 
 ### Prerequisites
 
@@ -158,8 +160,19 @@ ros2 launch isaac_sim isaac_sim_launch.py
 # G1 humanoid
 ros2 launch isaac_sim isaac_sim_launch.py robot_type:=g1
 
+# TRON1 bipedal wheelfoot
+ros2 launch isaac_sim isaac_sim_launch.py robot_type:=tron1
+
 # Without sensor nodes (if OM1-ros2-sdk is not built)
 ros2 launch isaac_sim isaac_sim_launch.py launch_sensors:=false
+```
+
+If you start `run.py` separately (e.g. directly in the Isaac Sim venv), use the
+support-nodes launcher instead — it brings up only the bridge nodes, lowstate,
+and topic relays:
+
+```bash
+ros2 launch isaac_sim isaac_sim_launch_support_nodes.py
 ```
 
 **Terminal 2 — Zenoh bridge:**
@@ -191,7 +204,7 @@ uv run src/run.py go2_sim_autonomy
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `robot_type` | `go2` | `go2` or `g1` |
+| `robot_type` | `go2` | `go2`, `g1`, or `tron1` |
 | `policy_dir` | auto | Path to policy directory |
 | `launch_sensors` | `true` | Launch sensor nodes from OM1-ros2-sdk |
 
@@ -201,7 +214,7 @@ These are passed directly if running `run.py` manually (advanced usage):
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `--robot_type` | `go2` | `go2` or `g1` |
+| `--robot_type` | `go2` | `go2`, `g1`, or `tron1` |
 | `--policy_dir` | auto | Path to policy directory |
 
 ---
@@ -218,10 +231,12 @@ OM1-sim/
 │   ├── champ_base/       # CHAMP base package
 │   └── champ_msgs/       # CHAMP message definitions
 ├── isaac_sim/            # Isaac Sim simulation
-│   ├── launch/           # ROS2 launch file (isaac_sim_launch.py)
+│   ├── launch/           # isaac_sim_launch.py (all-in-one)
+│   │                     # + isaac_sim_launch_support_nodes.py
 │   ├── run.py            # Main simulation script
 │   ├── utils.py          # ROS2 OmniGraph utilities
-│   ├── assets/           # Robot USD models (Go2, G1)
+│   ├── lowstate_node.py  # Mock LowState publisher with battery sim
+│   ├── assets/           # Robot USD models (Go2, G1, TRON1)
 │   └── checkpoints/      # Pre-trained locomotion policies
 ├── om_api/               # OpenMind message definitions (shared)
 ├── unitree_api/          # Unitree API messages (shared)

@@ -564,7 +564,7 @@ def setup_sensors_delayed(
         realsense_depth_camera.add_distance_to_image_plane_to_frame()
 
         sensors["realsense_depth_camera"] = realsense_depth_camera
-        logger.info("RealSense depth camera initialized with depth enabled")
+        logger.info("[Sensors] RealSense depth camera initialized with depth enabled")
 
         realsense_rgb_camera = Camera(
             prim_path=REALSENSE_RGB_CAMERA_PRIM,
@@ -587,7 +587,7 @@ def setup_sensors_delayed(
 
         realsense_rgb_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
         sensors["realsense_rgb_camera"] = realsense_rgb_camera
-        logger.info("RealSense RGB camera initialized")
+        logger.info("[Sensors] RealSense RGB camera initialized")
 
         go2_rgb_camera = Camera(
             prim_path=GO2_RGB_CAMERA_PRIM,
@@ -611,9 +611,9 @@ def setup_sensors_delayed(
 
         go2_rgb_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
         sensors["go2_rgb_camera"] = go2_rgb_camera
-        logger.info("Go2 RGB camera initialized")
+        logger.info("[Sensors] Go2 RGB camera initialized")
     except Exception as e:
-        logger.warning("Camera setup failed: %s", e)
+        logger.warning("[WARN] Camera setup failed: %s", e)
         import traceback
 
         traceback.print_exc()
@@ -628,9 +628,9 @@ def setup_sensors_delayed(
         )
         imu_sensor.initialize()
         sensors["imu"] = imu_sensor
-        logger.info("IMU initialized")
+        logger.info("[Sensors] IMU initialized")
     except Exception as e:
-        logger.warning("IMU setup failed: %s", e)
+        logger.warning("[WARN] IMU setup failed: %s", e)
 
     if enable_lidar:
         try:
@@ -653,9 +653,9 @@ def setup_sensors_delayed(
                 if result and len(result) > 1 and result[1]:
                     lidar_prim = result[1]
                     lidar_path = lidar_prim.GetPath().pathString
-                    logger.info("L1 LiDAR created at: %s", lidar_path)
+                    logger.info("[Sensors] L1 LiDAR created at: %s", lidar_path)
                 else:
-                    logger.warning("L1 LiDAR creation returned: %s", result)
+                    logger.warning("[WARN] L1 LiDAR creation returned: %s", result)
                     lidar_path = None
             if lidar_path:
                 l1_rp = rep.create.render_product(
@@ -669,9 +669,9 @@ def setup_sensors_delayed(
                     queueSize=10,
                 )
                 pc_writer.attach([l1_rp])
-                logger.info("L1 LiDAR -> /unitree_lidar/points")
+                logger.info("[Sensors] L1 LiDAR -> /unitree_lidar/points")
         except Exception as e:
-            logger.warning("L1 LiDAR setup failed: %s", e)
+            logger.warning("[WARN] L1 LiDAR setup failed: %s", e)
             import traceback
 
             traceback.print_exc()
@@ -703,9 +703,9 @@ def setup_sensors_delayed(
                 if result and len(result) > 1 and result[1]:
                     lidar_prim = result[1]
                     lidar_path = lidar_prim.GetPath().pathString
-                    logger.info("2D LiDAR created at: %s", lidar_path)
+                    logger.info("[Sensors] 2D LiDAR created at: %s", lidar_path)
                 else:
-                    logger.warning("2D LiDAR creation returned: %s", result)
+                    logger.warning("[WARN] 2D LiDAR creation returned: %s", result)
                     lidar_path = None
             if lidar_path:
                 velo_rp = rep.create.render_product(
@@ -716,9 +716,9 @@ def setup_sensors_delayed(
                     frameId="laser", nodeNamespace="", topicName="/scan", queueSize=10
                 )
                 scan_writer.attach([velo_rp])
-                logger.info("2D LiDAR -> /scan")
+                logger.info("[Sensors] 2D LiDAR -> /scan")
         except Exception as e:
-            logger.warning("2D LiDAR setup failed: %s", e)
+            logger.warning("[WARN] 2D LiDAR setup failed: %s", e)
     else:
         logger.info("LiDAR sensors skipped (enable_lidar=False)")
 
@@ -739,7 +739,7 @@ def setup_static_tfs(
 
     graph_path = "/StaticTFGraph"
     if is_prim_path_valid(graph_path):
-        logger.info("Static TF graph already exists")
+        logger.info("[ROS2] Static TF graph already exists")
         return
 
     if robot_type == "g1":
@@ -867,7 +867,7 @@ def setup_static_tfs(
     )
 
     logger.info(
-        "Static TFs published for %d transforms (staticPublisher=True)",
+        "[ROS2] Static TFs published for %d transforms (staticPublisher=True)",
         len(static_transforms),
     )
     simulation_app.update()
@@ -882,7 +882,7 @@ def setup_odom_publisher(simulation_app) -> None:
 
     graph_path = "/OdomPublisherGraph"
     if is_prim_path_valid(graph_path):
-        logger.info("Odom publisher graph already exists")
+        logger.info("[ROS2] Odom publisher graph already exists")
         return
 
     og.Controller.edit(
@@ -928,7 +928,7 @@ def setup_odom_publisher(simulation_app) -> None:
         graph_path + "/OdomPub.inputs:angularVelocity"
     )
 
-    logger.info("Odometry publisher -> /odom")
+    logger.info("[ROS2] Odometry publisher -> /odom")
     simulation_app.update()
 
 
@@ -976,11 +976,11 @@ def setup_color_camera_publishers(sensors, simulation_app) -> None:
                 )
                 w.attach([rp])
                 logger.info(
-                    "Color camera -> /camera/realsense2_camera_node/color/image_raw"
+                    "[ROS2] Color camera -> /camera/realsense2_camera_node/color/image_raw"
                 )
 
             except Exception as e:
-                logger.warning("Color camera publisher setup failed: %s", e)
+                logger.warning("[WARN] Color camera publisher setup failed: %s", e)
 
     if sensors.get("go2_rgb_camera"):
         cam = sensors["go2_rgb_camera"]
@@ -999,10 +999,10 @@ def setup_color_camera_publishers(sensors, simulation_app) -> None:
                         topicName=topic,
                     )
                     w.attach([rp])
-                    logger.info("Go2 RGB camera -> %s", topic)
+                    logger.info("[ROS2] Go2 RGB camera -> %s", topic)
 
             except Exception as e:
-                logger.warning("Go2 RGB camera publisher setup failed: %s", e)
+                logger.warning("[WARN] Go2 RGB camera publisher setup failed: %s", e)
 
 
 def setup_color_camerainfo_graph(
@@ -1022,7 +1022,7 @@ def setup_color_camerainfo_graph(
 
     graph_path = "/ColorCameraInfoGraph"
     if is_prim_path_valid(graph_path):
-        logger.info("Color CameraInfo graph already exists")
+        logger.info("[ROS2] Color CameraInfo graph already exists")
         return True
 
     if cx is None:
@@ -1071,7 +1071,7 @@ def setup_color_camerainfo_graph(
         },
     )
 
-    logger.info("Color CameraInfo -> %s", topic)
+    logger.info("[ROS2] Color CameraInfo -> %s", topic)
     simulation_app.update()
     return True
 
@@ -1084,7 +1084,7 @@ def setup_joint_states_publisher(simulation_app, robot_type: str = "go2") -> Non
 
     graph_path = "/JointStatesGraph"
     if is_prim_path_valid(graph_path):
-        logger.info("Joint states graph already exists")
+        logger.info("[ROS2] Joint states graph already exists")
         return
 
     if robot_type == "g1":
@@ -1127,7 +1127,7 @@ def setup_joint_states_publisher(simulation_app, robot_type: str = "go2") -> Non
     )
 
     logger.info(
-        "Joint states publisher -> /joint_states (articulation: %s)",
+        "[ROS2] Joint states publisher -> /joint_states (articulation: %s)",
         ROBOT_ARTICULATION_PATH,
     )
     simulation_app.update()
@@ -1148,6 +1148,7 @@ def setup_ros_publishers(
     import omni.syntheticdata._syntheticdata as sd
     from isaacsim.core.utils.prims import is_prim_path_valid
 
+    # Clock publisher
     graph_path = "/ClockGraph"
     if not is_prim_path_valid(graph_path):
         og.Controller.edit(
@@ -1168,8 +1169,9 @@ def setup_ros_publishers(
                 ],
             },
         )
-    logger.info("Clock publisher -> /clock")
+    logger.info("[ROS2] Clock publisher -> /clock")
 
+    # IMU publisher
     if not is_prim_path_valid("/ImuGraph"):
         og.Controller.edit(
             {
@@ -1204,13 +1206,15 @@ def setup_ros_publishers(
                 ],
             },
         )
-    logger.info("IMU publisher -> /imu/data")
+    logger.info("[ROS2] IMU publisher -> /imu/data")
 
+    # Camera publishers with CameraInfo
     if sensors.get("realsense_depth_camera"):
         cam = sensors["realsense_depth_camera"]
         rp = cam.get_render_product_path()
         if rp:
             try:
+                # Depth Image
                 rv = syn_data.SyntheticData.convert_sensor_type_to_rendervar(
                     sd.SensorType.DistanceToImagePlane.name
                 )
@@ -1223,9 +1227,10 @@ def setup_ros_publishers(
                 )
                 w_rs_depth.attach([rp])
                 logger.info(
-                    "Depth camera -> /camera/realsense2_camera_node/depth/image_rect_raw"
+                    "[ROS2] Depth camera -> /camera/realsense2_camera_node/depth/image_rect_raw"
                 )
 
+                # For easier RViz viewing
                 try:
                     depth_colorized = rep.writers.get("ROS2PublishNormalized" + "DepthImage")
                     depth_colorized.initialize(
@@ -1235,16 +1240,17 @@ def setup_ros_publishers(
                         topicName="camera/depth/image_colorized",
                     )
                     depth_colorized.attach([rp])
-                    logger.info("Depth colorized -> camera/depth/image_colorized")
+                    logger.info("[ROS2] Depth colorized -> camera/depth/image_colorized")
                 except Exception as de:
-                    logger.info("Normalized depth writer not available: %s", de)
+                    logger.info("[INFO] Normalized depth writer not available: %s", de)
 
             except Exception as e:
-                logger.warning("Camera publisher setup failed: %s", e)
+                logger.warning("[WARN] Camera publisher setup failed: %s", e)
                 import traceback
 
                 traceback.print_exc()
 
+    # Setup static TFs for sensor frames
     setup_static_tfs(
         simulation_app,
         robot_type=robot_type,
@@ -1253,6 +1259,7 @@ def setup_ros_publishers(
         lidar_velo_pos=lidar_velo_pos,
     )
 
+    # Odom TF publisher (dynamic - updated each frame)
     global odom_tf_trans_attr, odom_tf_rot_attr
     if not is_prim_path_valid(odom_graph_path):
         og.Controller.edit(
@@ -1285,7 +1292,7 @@ def setup_ros_publishers(
         odom_graph_path + "/TF.inputs:translation"
     )
     odom_tf_rot_attr = og.Controller.attribute(odom_graph_path + "/TF.inputs:rotation")
-    logger.info("Odom TF -> /tf (odom->base_link)")
+    logger.info("[ROS2] Odom TF -> /tf (odom->base_link)")
 
     simulation_app.update()
 
@@ -1307,7 +1314,7 @@ def setup_depth_camerainfo_graph(
 
     graph_path = "/DepthCameraInfoGraph"
     if is_prim_path_valid(graph_path):
-        logger.info("Depth CameraInfo graph already exists")
+        logger.info("[ROS2] Depth CameraInfo graph already exists")
         return True
 
     if cx is None:
@@ -1436,8 +1443,9 @@ def find_robot_articulation_path():
     return articulations
 
 
-# Lowstate Publisher for Isaac Sim
-# Default workspace: OM1-sim/install/setup.bash (parent dir of this isaac_sim/ folder).
+# Lowstate publisher fallback: spawns lowstate_node.py as a subprocess.
+# Normally the launch files start lowstate_node as a Node — these helpers
+# are kept for the case where run.py is run outside ros2 launch.
 _LOWSTATE_ROS2_WS = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..",

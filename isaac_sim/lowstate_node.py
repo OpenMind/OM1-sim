@@ -1,24 +1,13 @@
 #!/usr/bin/env python3
 """
-ROS2 lowstate publisher node for the Isaac Sim flow.
+Mock unitree_go/LowState publisher for Isaac Sim.
 
-Publishes mock unitree_go/LowState messages on /lowstate and /lf/lowstate at
-100Hz with a battery drain/charge simulation. Reads /joint_states (published
-by Isaac Sim's setup_joint_states_publisher) and remaps the 12 leg DOFs into
-the Unitree motor order before populating the LowState.
+Publishes /lowstate and /lf/lowstate at 100Hz with a battery drain/charge
+sim. Reads /joint_states and remaps the 12 leg DOFs into Unitree motor order.
 
-The node exposes an `is_charging` parameter that go2_sim_charger can set via:
+Toggle charging at runtime:
     ros2 param set /go2_lowstate_node is_charging true
 
-Launched automatically by isaac_sim/utils.py setup_lowstate_publisher() as a
-subprocess of run.py. Can also be run manually:
-    source /opt/ros/humble/setup.bash
-    source <workspace>/install/setup.bash
-    python3 lowstate_node.py
-
-NOTE: /utlidar/robot_pose and /utlidar/cloud_deskewed are NOT published here.
-The Isaac launch file (isaac_sim_launch.py) starts go2_remapping_node, which
-owns those topics with charging-aware z-offset and dynamic pose tracking.
 """
 
 import time
