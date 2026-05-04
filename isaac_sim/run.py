@@ -16,6 +16,22 @@ from isaacsim import SimulationApp
 
 simulation_app = SimulationApp({"renderer": "RaytracedLighting", "headless": False})
 
+# Isaac Sim mutates sys.path during SimulationApp() init so cv2/utils/
+# becomes importable as a bare "utils" module. Pre-load our local utils.py
+# under the name "utils" so subsequent `import utils as ros_utils` and
+# `from utils import ...` resolve correctly.
+import importlib.util as _ilu
+import os as _os
+import sys as _sys
+_local_utils_path = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "utils.py"
+)
+_spec = _ilu.spec_from_file_location("utils", _local_utils_path)
+_mod = _ilu.module_from_spec(_spec)
+_sys.modules["utils"] = _mod
+_spec.loader.exec_module(_mod)
+del _ilu, _os, _sys, _spec, _mod, _local_utils_path
+
 import argparse
 import logging
 import os
