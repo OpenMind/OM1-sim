@@ -17,6 +17,7 @@ from geometry_msgs.msg import Twist
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+
 from unitree_go.msg import BmsState, IMUState, LowState, MotorState
 
 # Unitree LowState motor_state order (12 active DOFs, indices 0-11):
@@ -26,18 +27,18 @@ from unitree_go.msg import BmsState, IMUState, LowState, MotorState
 # Unitree-style names; the alternates cover other URDF conventions in case
 # this node is reused outside Isaac Sim.
 UNITREE_MOTOR_NAME_CANDIDATES = [
-    ("FR_hip_joint",   "rf_hip_joint"),
+    ("FR_hip_joint", "rf_hip_joint"),
     ("FR_thigh_joint", "rf_upper_leg_joint"),
-    ("FR_calf_joint",  "rf_lower_leg_joint"),
-    ("FL_hip_joint",   "lf_hip_joint"),
+    ("FR_calf_joint", "rf_lower_leg_joint"),
+    ("FL_hip_joint", "lf_hip_joint"),
     ("FL_thigh_joint", "lf_upper_leg_joint"),
-    ("FL_calf_joint",  "lf_lower_leg_joint"),
-    ("RR_hip_joint",   "rh_hip_joint"),
+    ("FL_calf_joint", "lf_lower_leg_joint"),
+    ("RR_hip_joint", "rh_hip_joint"),
     ("RR_thigh_joint", "rh_upper_leg_joint"),
-    ("RR_calf_joint",  "rh_lower_leg_joint"),
-    ("RL_hip_joint",   "lh_hip_joint"),
+    ("RR_calf_joint", "rh_lower_leg_joint"),
+    ("RL_hip_joint", "lh_hip_joint"),
     ("RL_thigh_joint", "lh_upper_leg_joint"),
-    ("RL_calf_joint",  "lh_lower_leg_joint"),
+    ("RL_calf_joint", "lh_lower_leg_joint"),
 ]
 
 
@@ -221,8 +222,21 @@ class Go2LowstateNode(Node):
         msg.bms_state.bq_ntc = [25, 23]
         msg.bms_state.mcu_ntc = [29, 28]
         msg.bms_state.cell_vol = [
-            3654, 3663, 3664, 3663, 3662, 3662, 3663, 3653,
-            0, 0, 0, 0, 0, 0, 0,
+            3654,
+            3663,
+            3664,
+            3663,
+            3662,
+            3662,
+            3663,
+            3653,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
         ]
 
         msg.foot_force = [21, 22, 22, 22]
@@ -244,13 +258,11 @@ class Go2LowstateNode(Node):
         self._lf_lowstate_pub.publish(msg)
 
         if self._tick_counter % 500 == 0:
-            status = "CHARGING" if is_charging else (
-                "MOVING" if self.is_moving else "IDLE"
+            status = (
+                "CHARGING" if is_charging else ("MOVING" if self.is_moving else "IDLE")
             )
             joints_status = "joints OK" if self._latest_joint_state else "no joints yet"
-            self.get_logger().info(
-                f"[{status}] SoC: {int(self.soc)}%, {joints_status}"
-            )
+            self.get_logger().info(f"[{status}] SoC: {int(self.soc)}%, {joints_status}")
 
 
 def main():

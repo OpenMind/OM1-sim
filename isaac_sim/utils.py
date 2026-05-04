@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import re
+import subprocess
 from typing import Optional, Tuple
 
 import numpy as np
@@ -194,7 +195,9 @@ def add_apartment_environment() -> bool:
 
     env_prim = usd_stage.GetPrimAtPath(ENV_STAGE_PATH)
     if not env_prim or not env_prim.IsValid():
-        carb.log_error(f"Failed to load apartment environment USD: {APARTMENT_USD_PATH}")
+        carb.log_error(
+            f"Failed to load apartment environment USD: {APARTMENT_USD_PATH}"
+        )
         return False
 
     xform = UsdGeom.Xformable(env_prim)
@@ -346,7 +349,12 @@ def update_human_pose(human_prim, x: float, y: float, yaw_rad: float) -> None:
 
 
 def integrate_human_velocity(
-    current_pos, current_yaw: float, vel_x: float, vel_y: float, yaw_rate: float, dt: float
+    current_pos,
+    current_yaw: float,
+    vel_x: float,
+    vel_y: float,
+    yaw_rate: float,
+    dt: float,
 ):
     """Integrate human velocity to get new position and orientation.
 
@@ -607,7 +615,9 @@ def setup_sensors_delayed(
             # +25° around Y to counteract camera_link's -25° pitch so the
             # forward-facing Go2 camera stays level.
             xformable.AddRotateXYZOp().Set(Gf.Vec3f(0.0, 25.0, 0.0))
-            logger.info("Set go2_rgb_camera to face forward (counteracts camera_link tilt)")
+            logger.info(
+                "Set go2_rgb_camera to face forward (counteracts camera_link tilt)"
+            )
 
         go2_rgb_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
         sensors["go2_rgb_camera"] = go2_rgb_camera
@@ -1232,7 +1242,9 @@ def setup_ros_publishers(
 
                 # For easier RViz viewing
                 try:
-                    depth_colorized = rep.writers.get("ROS2PublishNormalized" + "DepthImage")
+                    depth_colorized = rep.writers.get(
+                        "ROS2PublishNormalized" + "DepthImage"
+                    )
                     depth_colorized.initialize(
                         frameId="realsense_depth_camera",
                         nodeNamespace="",
@@ -1240,7 +1252,9 @@ def setup_ros_publishers(
                         topicName="camera/depth/image_colorized",
                     )
                     depth_colorized.attach([rp])
-                    logger.info("[ROS2] Depth colorized -> camera/depth/image_colorized")
+                    logger.info(
+                        "[ROS2] Depth colorized -> camera/depth/image_colorized"
+                    )
                 except Exception as de:
                     logger.info("[INFO] Normalized depth writer not available: %s", de)
 
@@ -1467,8 +1481,6 @@ def setup_lowstate_publisher(
     ros2_ws : str, optional
         Path to the ROS2 workspace install/setup.bash.
     """
-    import subprocess
-
     global _lowstate_process
     if _lowstate_process is not None and _lowstate_process.poll() is None:
         logger.info("[Lowstate] Already running (pid=%d)", _lowstate_process.pid)
@@ -1492,9 +1504,7 @@ def setup_lowstate_publisher(
         for _ in range(5):
             search = os.path.dirname(search)
             candidates.append(os.path.join(search, "install", "setup.bash"))
-            candidates.append(
-                os.path.join(search, "ros2_ws", "install", "setup.bash")
-            )
+            candidates.append(os.path.join(search, "ros2_ws", "install", "setup.bash"))
         for c in candidates:
             if os.path.isfile(c):
                 ws_setup = c
@@ -1601,9 +1611,7 @@ def create_apriltag_dock(
     script_dir = os.path.dirname(os.path.abspath(__file__))
     texture_paths = [
         os.path.join(script_dir, "assets", "apriltags.png"),
-        os.path.join(
-            script_dir, "..", "go2_description", "tags", "apriltags.png"
-        ),
+        os.path.join(script_dir, "..", "go2_description", "tags", "apriltags.png"),
     ]
 
     texture_path = None
@@ -1704,9 +1712,9 @@ def create_apriltag_dock(
             shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(
                 Gf.Vec3f(0.0, 0.0, 0.0)
             )
-            shader.CreateInput("emissiveColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(
-                tex_shader.ConnectableAPI(), "rgb"
-            )
+            shader.CreateInput(
+                "emissiveColor", Sdf.ValueTypeNames.Color3f
+            ).ConnectToSource(tex_shader.ConnectableAPI(), "rgb")
             shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(1.0)
             shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.0)
 

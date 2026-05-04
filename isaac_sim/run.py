@@ -27,6 +27,7 @@ simulation_app = SimulationApp({"renderer": "RaytracedLighting", "headless": Fal
 import importlib.util as _ilu
 import os as _os
 import sys as _sys
+
 _local_utils_path = _os.path.join(
     _os.path.dirname(_os.path.abspath(__file__)), "utils.py"
 )
@@ -35,7 +36,6 @@ _mod = _ilu.module_from_spec(_spec)
 _sys.modules["utils"] = _mod
 _spec.loader.exec_module(_mod)
 del _ilu, _os, _sys, _spec, _mod, _local_utils_path
-
 
 
 import argparse
@@ -326,7 +326,9 @@ def _add_apartment_environment() -> bool:
 
     env_prim = usd_stage.GetPrimAtPath(APARTMENT_STAGE_PATH)
     if not env_prim or not env_prim.IsValid():
-        carb.log_error(f"Failed to load apartment environment USD: {APARTMENT_USD_PATH}")
+        carb.log_error(
+            f"Failed to load apartment environment USD: {APARTMENT_USD_PATH}"
+        )
         return False
 
     xform = UsdGeom.Xformable(env_prim)
@@ -384,7 +386,9 @@ def _add_apartment_environment() -> bool:
     return True
 
 
-def _validate_policy_paths(policy_dir: str, robot_type: str = ROBOT_GO2) -> Tuple[str, str, str]:
+def _validate_policy_paths(
+    policy_dir: str, robot_type: str = ROBOT_GO2
+) -> Tuple[str, str, str]:
     policy_path = os.path.join(policy_dir, "exported", "policy.pt")
     env_path = os.path.join(policy_dir, "params", "env.yaml")
     deploy_path = os.path.join(policy_dir, "params", "deploy.yaml")
@@ -839,11 +843,17 @@ class Tron1VelocityPolicy:
 
         if root_path is None:
             self.robot = SingleArticulation(
-                prim_path=prim_path, name=name, position=position, orientation=orientation,
+                prim_path=prim_path,
+                name=name,
+                position=position,
+                orientation=orientation,
             )
         else:
             self.robot = SingleArticulation(
-                prim_path=root_path, name=name, position=position, orientation=orientation,
+                prim_path=root_path,
+                name=name,
+                position=position,
+                orientation=orientation,
             )
 
         # Load deploy config
@@ -854,6 +864,7 @@ class Tron1VelocityPolicy:
 
         # Load policy (actor MLP) and encoder as JIT models
         import io
+
         import omni
 
         file_content = omni.client.read_file(policy_path)[2]
@@ -874,8 +885,13 @@ class Tron1VelocityPolicy:
         # Observation scales from deploy config
         deploy_obs_cfg = self._deploy_cfg.get("observations", {})
         self._obs_scales = {}
-        for obs_name in ["base_ang_vel", "projected_gravity", "joint_pos_rel",
-                         "joint_vel_rel", "last_action"]:
+        for obs_name in [
+            "base_ang_vel",
+            "projected_gravity",
+            "joint_pos_rel",
+            "joint_vel_rel",
+            "last_action",
+        ]:
             scale = deploy_obs_cfg.get(obs_name, {}).get("scale")
             if scale is None:
                 self._obs_scales[obs_name] = 1.0
@@ -897,9 +913,7 @@ class Tron1VelocityPolicy:
         self._stiffness = np.array(
             self._deploy_cfg.get("stiffness", []), dtype=np.float32
         )
-        self._damping = np.array(
-            self._deploy_cfg.get("damping", []), dtype=np.float32
-        )
+        self._damping = np.array(self._deploy_cfg.get("damping", []), dtype=np.float32)
 
         self.default_pos = None
         self.default_vel = None
@@ -973,10 +987,15 @@ class Tron1VelocityPolicy:
 
         logger.info(
             "[TRON1] Init complete - %d DOFs, obs_dim=%d, history=%d, encoder_input=%d",
-            dof_count, obs_dim, self._history_length, obs_dim * self._history_length,
+            dof_count,
+            obs_dim,
+            self._history_length,
+            obs_dim * self._history_length,
         )
 
-    def _compute_observation(self, command: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _compute_observation(
+        self, command: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Compute current obs (28-dim) and flattened history (280-dim)."""
         ang_vel_I = self.robot.get_angular_velocity()
         _, q_IB = self.robot.get_world_pose()
@@ -990,7 +1009,10 @@ class Tron1VelocityPolicy:
         current_joint_vel = self.robot.get_joint_velocities()
 
         # Leg joint positions only (first num_leg_joints)
-        leg_pos_rel = current_joint_pos[: self._num_leg_joints] - self.default_pos[: self._num_leg_joints]
+        leg_pos_rel = (
+            current_joint_pos[: self._num_leg_joints]
+            - self.default_pos[: self._num_leg_joints]
+        )
 
         obs = np.concatenate(
             [
@@ -1021,7 +1043,9 @@ class Tron1VelocityPolicy:
             latent = self._encode(obs_history_flat)
 
             # Policy input: [latent(3), obs(28), command(3)]
-            policy_input = np.concatenate([latent, obs, command], axis=0).astype(np.float32)
+            policy_input = np.concatenate([latent, obs, command], axis=0).astype(
+                np.float32
+            )
             self.action = np.array(self._compute_action(policy_input), dtype=np.float32)
             self._previous_action = self.action.copy()
 
@@ -1031,12 +1055,16 @@ class Tron1VelocityPolicy:
         wheel_actions = self.action[n_leg:]
 
         target_pos = self.default_pos.copy()
-        target_pos[:n_leg] = self.default_pos[:n_leg] + self._leg_action_scale * leg_actions
+        target_pos[:n_leg] = (
+            self.default_pos[:n_leg] + self._leg_action_scale * leg_actions
+        )
 
         target_vel = np.zeros_like(self.default_pos)
         target_vel[n_leg:] = self._wheel_action_scale * wheel_actions
 
-        action = ArticulationAction(joint_positions=target_pos, joint_velocities=target_vel)
+        action = ArticulationAction(
+            joint_positions=target_pos, joint_velocities=target_vel
+        )
         self.robot.apply_action(action)
         self._policy_counter += 1
 
@@ -1105,7 +1133,9 @@ class RobotRosRunner(object):
 
         """
         self._robot_type = robot_type
-        policy_path, env_path, deploy_path = _validate_policy_paths(policy_dir, robot_type)
+        policy_path, env_path, deploy_path = _validate_policy_paths(
+            policy_dir, robot_type
+        )
 
         if os.path.isfile(env_path):
             env_cfg = parse_env_config(env_path)
@@ -1583,7 +1613,9 @@ def main():
         help="Environment to load: warehouse or apartment",
     )
     # Human model arguments
-    parser.add_argument("--human", action="store_true", help="Enable human pedestrian model")
+    parser.add_argument(
+        "--human", action="store_true", help="Enable human pedestrian model"
+    )
     parser.add_argument(
         "--human_cmd_topic",
         type=str,
