@@ -1,23 +1,46 @@
 # ruff: noqa: E402
 """
-Isaac Sim robot simulation with ROS2 integration.
-Supports Go2 (quadruped) and G1 (humanoid) robots.
+Standalone Isaac Sim robot simulation with ROS2 integration.
+Supports Go2 (quadruped), G1 (humanoid), and TRON1 (bipedal wheelfoot) robots.
 
 Control robot velocity:
   ros2 topic pub /cmd_vel geometry_msgs/Twist "{linear: {x: 0.3, y: 0.0}, angular: {z: 0.2}}"
 
-Examples
---------
-  python run.py --robot_type go2   # Run Go2 quadruped (default)
-  python run.py --robot_type g1    # Run G1 humanoid
+Control human velocity (forward 0.5 m/s, rotate 0.3 rad/s):
+  ros2 topic pub /cmd_vel_human geometry_msgs/Twist "{linear: {x: 0.5, y: 0.0}, angular: {z: 0.3}}"
+
+Examples:
+  python run.py --robot_type go2    # Run Go2 quadruped (default)
+  python run.py --robot_type g1     # Run G1 humanoid
+  python run.py --robot_type tron1  # Run TRON1 WheelFoot bipedal
 """
 
 from isaacsim import SimulationApp
 
 simulation_app = SimulationApp({"renderer": "RaytracedLighting", "headless": False})
 
+
+# Isaac Sim mutates sys.path during SimulationApp() init so cv2/utils/
+# becomes importable as a bare "utils" module. Pre-load our local utils.py
+# under the name "utils" so subsequent `import utils as ros_utils` and
+# `from utils import ...` resolve correctly.
+import importlib.util as _ilu
+import os as _os
+import sys as _sys
+
+_local_utils_path = _os.path.join(
+    _os.path.dirname(_os.path.abspath(__file__)), "utils.py"
+)
+_spec = _ilu.spec_from_file_location("utils", _local_utils_path)
+_mod = _ilu.module_from_spec(_spec)
+_sys.modules["utils"] = _mod
+_spec.loader.exec_module(_mod)
+del _ilu, _os, _sys, _spec, _mod, _local_utils_path
+
+
 import argparse
 import logging
+import math
 import os
 import time
 from typing import Optional, Tuple
@@ -38,6 +61,12 @@ from isaacsim.robot.policy.examples.controllers.config_loader import (
     parse_env_config,
 )
 from isaacsim.storage.native import get_assets_root_path
+from utils import (
+    add_human_model,
+    integrate_human_velocity,
+    setup_human_cmd_graph,
+    update_human_pose,
+)
 
 DEFAULT_GO2_POLICY_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "checkpoints", "go2"
@@ -45,13 +74,30 @@ DEFAULT_GO2_POLICY_DIR = os.path.join(
 DEFAULT_G1_POLICY_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "checkpoints", "g1"
 )
+DEFAULT_TRON1_POLICY_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "checkpoints", "tron1"
+)
 
 ROBOT_GO2 = "go2"
 ROBOT_G1 = "g1"
+ROBOT_TRON1 = "tron1"
 
 G1_INIT_HEIGHT = 1.05
 G1_HISTORY_LENGTH = 5
-CMD_VEL_TIMEOUT = 0.5  # seconds – stop if no new /cmd_vel received
+TRON1_INIT_HEIGHT = 0.966
+TRON1_HISTORY_LENGTH = 10
+
+# Stop the robot if no /cmd_vel message has arrived in this many seconds.
+CMD_VEL_TIMEOUT = 0.5
+
+# Apartment environment constants
+APARTMENT_STAGE_PATH = "/World/Environment"
+APARTMENT_USD_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "assets",
+    "environment",
+    "Modern_Apartment.usdz",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +164,26 @@ def _resolve_command_limits(
 
 def _resolve_usd_path(env_cfg: dict, robot_type: str = ROBOT_GO2) -> str:
     script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    if robot_type == ROBOT_TRON1:
+        # First priority: check for local tron assets directory
+        local_usd_path = os.path.join(script_dir, "assets", "tron1", "usd", "tron1.usd")
+        if os.path.isfile(local_usd_path):
+            logger.info("Using local TRON1 USD model: %s", local_usd_path)
+            return local_usd_path
+
+        # Second priority: check env.yaml usd_path
+        usd_path = (
+            env_cfg.get("scene", {}).get("robot", {}).get("spawn", {}).get("usd_path")
+        )
+        if usd_path:
+            if os.path.isabs(usd_path) and os.path.isfile(usd_path):
+                return usd_path
+            relative_path = os.path.join(script_dir, usd_path)
+            if os.path.isfile(relative_path):
+                return relative_path
+        logger.error("Could not find TRON1 USD model")
+        return ""
 
     if robot_type == ROBOT_G1:
         # First priority: check for local G1 assets directory
@@ -188,7 +254,25 @@ def _configure_ros_utils_paths(robot_root: str, robot_type: str = ROBOT_GO2) -> 
     """Configure ROS utils prim paths based on robot type."""
     ros_utils.GO2_STAGE_PATH = robot_root
 
-    if robot_type == ROBOT_G1:
+    if robot_type == ROBOT_TRON1:
+        base_link = f"{robot_root}/base_Link"
+        ros_utils.IMU_PRIM = f"{base_link}/imu_link"
+        ros_utils.CAMERA_LINK_PRIM = f"{base_link}/camera_link"
+        ros_utils.REALSENSE_DEPTH_CAMERA_PRIM = (
+            f"{ros_utils.CAMERA_LINK_PRIM}/realsense_depth_camera"
+        )
+        ros_utils.REALSENSE_RGB_CAMERA_PRIM = (
+            f"{ros_utils.CAMERA_LINK_PRIM}/realsense_rgb_camera"
+        )
+        ros_utils.GO2_RGB_CAMERA_PRIM = f"{ros_utils.CAMERA_LINK_PRIM}/go2_rgb_camera"
+        ros_utils.L1_LINK_PRIM = f"{base_link}/lidar_l1_link"
+        ros_utils.L1_LIDAR_PRIM = f"{ros_utils.L1_LINK_PRIM}/lidar_l1_rtx"
+        ros_utils.VELO_BASE_LINK_PRIM = f"{base_link}/velodyne_base_link"
+        ros_utils.VELO_LASER_LINK_PRIM = f"{ros_utils.VELO_BASE_LINK_PRIM}/laser"
+        ros_utils.VELO_LIDAR_PRIM = (
+            f"{ros_utils.VELO_LASER_LINK_PRIM}/velodyne_vlp16_rtx"
+        )
+    elif robot_type == ROBOT_G1:
         base_link = f"{robot_root}/torso_link"
         ros_utils.IMU_PRIM = f"{base_link}/imu_link"
         ros_utils.CAMERA_LINK_PRIM = f"{base_link}/camera_link"
@@ -225,7 +309,86 @@ def _configure_ros_utils_paths(robot_root: str, robot_type: str = ROBOT_GO2) -> 
         )
 
 
-def _validate_policy_paths(policy_dir: str) -> Tuple[str, str, str]:
+def _add_apartment_environment() -> bool:
+    """Add the Modern Apartment environment."""
+    import omni.usd
+    from isaacsim.core.utils import stage as stage_utils
+    from pxr import Gf, UsdGeom, UsdLux, UsdPhysics
+
+    if not os.path.isfile(APARTMENT_USD_PATH):
+        carb.log_error(f"Apartment USD file not found: {APARTMENT_USD_PATH}")
+        return False
+
+    usd_context = omni.usd.get_context()
+    usd_stage = usd_context.get_stage()
+
+    stage_utils.add_reference_to_stage(APARTMENT_USD_PATH, APARTMENT_STAGE_PATH)
+
+    env_prim = usd_stage.GetPrimAtPath(APARTMENT_STAGE_PATH)
+    if not env_prim or not env_prim.IsValid():
+        carb.log_error(
+            f"Failed to load apartment environment USD: {APARTMENT_USD_PATH}"
+        )
+        return False
+
+    xform = UsdGeom.Xformable(env_prim)
+    xform.ClearXformOpOrder()
+    xform.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, -0.012))
+    xform.AddRotateXYZOp().Set(Gf.Vec3f(90.0, 0.0, 0.0))
+    xform.AddScaleOp().Set(Gf.Vec3f(0.01, 0.01, 0.01))
+
+    logger.info("Apartment: scale=0.01, rotX=90, transZ=-0.012")
+
+    ground_z = 0.22073
+    ground_path = "/World/GroundPlane"
+    ground_xform_prim = usd_stage.DefinePrim(ground_path, "Xform")
+    ground_xform = UsdGeom.Xformable(ground_xform_prim)
+    ground_xform.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, ground_z))
+    plane_prim = usd_stage.DefinePrim(f"{ground_path}/CollisionPlane", "Plane")
+    plane_geom = UsdGeom.Plane(plane_prim)
+    plane_geom.CreateAxisAttr("Z")
+    plane_geom.CreateExtentAttr([(-50, -50, 0), (50, 50, 0)])
+    UsdPhysics.CollisionAPI.Apply(plane_prim)
+    UsdGeom.Imageable(plane_prim).MakeInvisible()
+    logger.info("Ground plane at Z=%s", ground_z)
+
+    dome_light = UsdLux.DomeLight.Define(usd_stage, "/World/DomeLight")
+    dome_light.CreateIntensityAttr(500.0)
+
+    distant_light = UsdLux.DistantLight.Define(usd_stage, "/World/DistantLight")
+    distant_light.CreateIntensityAttr(1500.0)
+    distant_xform = UsdGeom.Xformable(distant_light.GetPrim())
+    distant_xform.AddRotateXYZOp().Set(Gf.Vec3f(-45.0, 30.0, 0.0))
+
+    ceiling_z = ground_z + 2.5
+    light_positions = [
+        (0.0, 0.0),
+        (5.0, 0.0),
+        (-3.0, 0.0),
+        (0.0, -2.0),
+        (5.0, -2.0),
+        (-3.0, -2.0),
+        (10.0, 0.0),
+        (10.0, -2.0),
+    ]
+
+    for i, (x, y) in enumerate(light_positions):
+        light_path = f"/World/CeilingLight_{i}"
+        sphere_light = UsdLux.SphereLight.Define(usd_stage, light_path)
+        sphere_light.CreateIntensityAttr(30000.0)
+        sphere_light.CreateRadiusAttr(0.15)
+        sphere_light.CreateColorAttr(Gf.Vec3f(1.0, 0.95, 0.9))
+        light_xform = UsdGeom.Xformable(sphere_light.GetPrim())
+        light_xform.AddTranslateOp().Set(Gf.Vec3d(x, y, ceiling_z))
+
+    logger.info("Added %d ceiling lights inside apartment", len(light_positions))
+    logger.info("Modern Apartment environment added successfully")
+    return True
+
+
+def _validate_policy_paths(
+    policy_dir: str, robot_type: str = ROBOT_GO2
+) -> Tuple[str, str, str]:
     policy_path = os.path.join(policy_dir, "exported", "policy.pt")
     env_path = os.path.join(policy_dir, "params", "env.yaml")
     deploy_path = os.path.join(policy_dir, "params", "deploy.yaml")
@@ -233,8 +396,14 @@ def _validate_policy_paths(policy_dir: str) -> Tuple[str, str, str]:
     missing = []
     if not os.path.isfile(policy_path):
         missing.append(policy_path)
-    if not os.path.isfile(env_path):
+    if robot_type != ROBOT_TRON1 and not os.path.isfile(env_path):
         missing.append(env_path)
+
+    # TRON1 requires encoder.pt
+    if robot_type == ROBOT_TRON1:
+        encoder_path = os.path.join(policy_dir, "exported", "encoder.pt")
+        if not os.path.isfile(encoder_path):
+            missing.append(encoder_path)
 
     if missing:
         for path in missing:
@@ -638,8 +807,297 @@ class G1VelocityPolicy(PolicyController):
         self._policy_counter += 1
 
 
+class Tron1VelocityPolicy:
+    """
+    LimX TRON1 WheelFoot running a velocity tracking locomotion policy with
+    observation history encoder.
+
+    Architecture: encoder(obs_history) -> latent, then policy([latent, obs, cmd]) -> actions.
+    8 DOF: 6 leg joints (position control) + 2 wheel joints (velocity control).
+    """
+
+    def __init__(
+        self,
+        prim_path: str,
+        policy_path: str,
+        encoder_path: str,
+        deploy_path: str,
+        root_path: Optional[str] = None,
+        name: str = "tron1",
+        usd_path: Optional[str] = None,
+        position: Optional[np.ndarray] = None,
+        orientation: Optional[np.ndarray] = None,
+        history_length: int = TRON1_HISTORY_LENGTH,
+    ) -> None:
+        import torch
+        from isaacsim.core.prims import SingleArticulation
+        from isaacsim.core.utils.prims import define_prim, get_prim_at_path
+
+        prim = get_prim_at_path(prim_path)
+        if not prim.IsValid():
+            prim = define_prim(prim_path, "Xform")
+            if usd_path:
+                prim.GetReferences().AddReference(usd_path)
+            else:
+                carb.log_error("unable to add robot usd, usd_path not provided")
+
+        if root_path is None:
+            self.robot = SingleArticulation(
+                prim_path=prim_path,
+                name=name,
+                position=position,
+                orientation=orientation,
+            )
+        else:
+            self.robot = SingleArticulation(
+                prim_path=root_path,
+                name=name,
+                position=position,
+                orientation=orientation,
+            )
+
+        # Load deploy config
+        self._deploy_cfg = _load_yaml(deploy_path)
+        if not self._deploy_cfg:
+            raise FileNotFoundError(f"deploy.yaml required for TRON1: {deploy_path}")
+        logger.info("[TRON1] Loaded deploy config from %s", deploy_path)
+
+        # Load policy (actor MLP) and encoder as JIT models
+        import io
+
+        import omni
+
+        file_content = omni.client.read_file(policy_path)[2]
+        file = io.BytesIO(memoryview(file_content).tobytes())
+        self.policy = torch.jit.load(file)
+        logger.info("[TRON1] Loaded policy from %s", policy_path)
+
+        file_content = omni.client.read_file(encoder_path)[2]
+        file = io.BytesIO(memoryview(file_content).tobytes())
+        self.encoder_model = torch.jit.load(file)
+        logger.info("[TRON1] Loaded encoder from %s", encoder_path)
+
+        self._decimation = self._deploy_cfg.get("decimation", 4)
+        self._history_length = self._deploy_cfg.get("history_length", history_length)
+        self._num_leg_joints = self._deploy_cfg.get("num_leg_joints", 6)
+        self._num_wheel_joints = self._deploy_cfg.get("num_wheel_joints", 2)
+
+        # Observation scales from deploy config
+        deploy_obs_cfg = self._deploy_cfg.get("observations", {})
+        self._obs_scales = {}
+        for obs_name in [
+            "base_ang_vel",
+            "projected_gravity",
+            "joint_pos_rel",
+            "joint_vel_rel",
+            "last_action",
+        ]:
+            scale = deploy_obs_cfg.get(obs_name, {}).get("scale")
+            if scale is None:
+                self._obs_scales[obs_name] = 1.0
+            elif isinstance(scale, (int, float)):
+                self._obs_scales[obs_name] = float(scale)
+            else:
+                self._obs_scales[obs_name] = np.array(scale, dtype=np.float32)
+
+        # Action config
+        leg_action_cfg = self._deploy_cfg.get("actions", {}).get("leg", {})
+        wheel_action_cfg = self._deploy_cfg.get("actions", {}).get("wheel", {})
+        self._leg_action_scale = leg_action_cfg.get("scale", 0.25)
+        self._wheel_action_scale = wheel_action_cfg.get("scale", 1.0)
+
+        # Default joint positions and PD gains
+        self._default_pos_cfg = np.array(
+            self._deploy_cfg.get("default_joint_pos", [0.0] * 8), dtype=np.float32
+        )
+        self._stiffness = np.array(
+            self._deploy_cfg.get("stiffness", []), dtype=np.float32
+        )
+        self._damping = np.array(self._deploy_cfg.get("damping", []), dtype=np.float32)
+
+        self.default_pos = None
+        self.default_vel = None
+        self._previous_action = None
+        self._policy_counter = 0
+        self._obs_history = None
+
+    def _compute_action(self, obs: np.ndarray) -> np.ndarray:
+        import torch
+
+        with torch.no_grad():
+            obs_tensor = torch.from_numpy(obs).view(1, -1).float()
+            action = self.policy(obs_tensor).detach().view(-1).numpy()
+        return action
+
+    def _encode(self, obs_history: np.ndarray) -> np.ndarray:
+        import torch
+
+        with torch.no_grad():
+            hist_tensor = torch.from_numpy(obs_history).view(1, -1).float()
+            latent = self.encoder_model(hist_tensor).detach().view(-1).numpy()
+        return latent
+
+    def post_reset(self) -> None:
+        self.robot.post_reset()
+
+    def initialize(self, physics_sim_view=None) -> None:
+        from omni.physx import get_physx_simulation_interface
+
+        self.robot.initialize(physics_sim_view=physics_sim_view)
+        self.robot.get_articulation_controller().set_effort_modes("force")
+        get_physx_simulation_interface().flush_changes()
+        self.robot.get_articulation_controller().switch_control_mode("position")
+
+        dof_count = len(self.robot.dof_names)
+        logger.info("[TRON1] Articulation has %d DOFs", dof_count)
+        logger.info("[TRON1] Joint names: %s", self.robot.dof_names)
+
+        if len(self._default_pos_cfg) != dof_count:
+            raise ValueError(
+                f"deploy.yaml default_joint_pos has {len(self._default_pos_cfg)} values, "
+                f"expected {dof_count}"
+            )
+
+        self.default_pos = self._default_pos_cfg.copy()
+        self.default_vel = np.zeros(dof_count, dtype=np.float32)
+
+        # Apply PD gains
+        if len(self._stiffness) == dof_count and len(self._damping) == dof_count:
+            self.robot._articulation_view.set_gains(self._stiffness, self._damping)
+            logger.info("[TRON1] Applied stiffness/damping from deploy.yaml")
+
+        self.robot.set_joint_positions(self.default_pos)
+        self.robot.set_joint_velocities(self.default_vel)
+
+        self._previous_action = np.zeros(dof_count, dtype=np.float32)
+        self.action = np.zeros(dof_count, dtype=np.float32)
+
+        # Initialize observation history buffer
+        # obs_dim = 3 + 3 + num_leg_joints + dof_count + dof_count
+        obs_dim = (
+            3  # base_ang_vel
+            + 3  # projected_gravity
+            + self._num_leg_joints  # joint_pos_rel (legs only)
+            + dof_count  # joint_vel (all)
+            + dof_count  # last_action (all)
+        )
+        self._obs_history = [
+            np.zeros(obs_dim, dtype=np.float32) for _ in range(self._history_length)
+        ]
+
+        logger.info(
+            "[TRON1] Init complete - %d DOFs, obs_dim=%d, history=%d, encoder_input=%d",
+            dof_count,
+            obs_dim,
+            self._history_length,
+            obs_dim * self._history_length,
+        )
+
+    def _compute_observation(
+        self, command: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute current obs (28-dim) and flattened history (280-dim)."""
+        ang_vel_I = self.robot.get_angular_velocity()
+        _, q_IB = self.robot.get_world_pose()
+
+        R_IB = quat_to_rot_matrix(q_IB)
+        R_BI = R_IB.transpose()
+        ang_vel_b = np.matmul(R_BI, ang_vel_I)
+        gravity_b = np.matmul(R_BI, np.array([0.0, 0.0, -1.0]))
+
+        current_joint_pos = self.robot.get_joint_positions()
+        current_joint_vel = self.robot.get_joint_velocities()
+
+        # Leg joint positions only (first num_leg_joints)
+        leg_pos_rel = (
+            current_joint_pos[: self._num_leg_joints]
+            - self.default_pos[: self._num_leg_joints]
+        )
+
+        obs = np.concatenate(
+            [
+                ang_vel_b * self._obs_scales["base_ang_vel"],
+                gravity_b * self._obs_scales["projected_gravity"],
+                leg_pos_rel * self._obs_scales["joint_pos_rel"],
+                current_joint_vel * self._obs_scales["joint_vel_rel"],
+                self._previous_action * self._obs_scales["last_action"],
+            ],
+            axis=0,
+        ).astype(np.float32)
+
+        # Update history
+        self._obs_history.pop(0)
+        self._obs_history.append(obs.copy())
+
+        # Flatten history: [obs_t-9, obs_t-8, ..., obs_t]
+        obs_history_flat = np.concatenate(self._obs_history, axis=0).astype(np.float32)
+
+        return obs, obs_history_flat
+
+    def forward(self, dt: float, command: np.ndarray) -> None:
+        """Step policy forward: encode history, run actor, apply mixed actions."""
+        if self._policy_counter % self._decimation == 0:
+            obs, obs_history_flat = self._compute_observation(command)
+
+            # Encoder: history -> latent
+            latent = self._encode(obs_history_flat)
+
+            # Policy input: [latent(3), obs(28), command(3)]
+            policy_input = np.concatenate([latent, obs, command], axis=0).astype(
+                np.float32
+            )
+            self.action = np.array(self._compute_action(policy_input), dtype=np.float32)
+            self._previous_action = self.action.copy()
+
+        # Apply actions: legs get position targets, wheels get velocity targets
+        n_leg = self._num_leg_joints
+        leg_actions = self.action[:n_leg]
+        wheel_actions = self.action[n_leg:]
+
+        target_pos = self.default_pos.copy()
+        target_pos[:n_leg] = (
+            self.default_pos[:n_leg] + self._leg_action_scale * leg_actions
+        )
+
+        target_vel = np.zeros_like(self.default_pos)
+        target_vel[n_leg:] = self._wheel_action_scale * wheel_actions
+
+        action = ArticulationAction(
+            joint_positions=target_pos, joint_velocities=target_vel
+        )
+        self.robot.apply_action(action)
+        self._policy_counter += 1
+
+
 class RobotRosRunner(object):
-    """Runner class for Unitree robots (Go2/G1) with ROS2 integration and sensor support."""
+    """Runner class for Unitree robots (Go2/G1) and TRON1 with ROS2 integration and sensor support."""
+
+    def _hide_default_ground(self) -> None:
+        """Hide any default ground planes created by World."""
+        import omni.usd
+        from pxr import UsdGeom
+
+        usd_context = omni.usd.get_context()
+        usd_stage = usd_context.get_stage()
+
+        ground_paths = [
+            "/World/defaultGroundPlane",
+            "/World/GroundPlane/GroundPlane",
+            "/World/ground",
+            "/World/ground/GroundPlane",
+        ]
+
+        for path in ground_paths:
+            prim = usd_stage.GetPrimAtPath(path)
+            if prim and prim.IsValid():
+                imageable = UsdGeom.Imageable(prim)
+                if imageable:
+                    imageable.MakeInvisible()
+                    logger.info("Made %s invisible", path)
+                for child in prim.GetAllChildren():
+                    child_imageable = UsdGeom.Imageable(child)
+                    if child_imageable:
+                        child_imageable.MakeInvisible()
 
     def __init__(
         self,
@@ -654,27 +1112,46 @@ class RobotRosRunner(object):
         cmd_vel_only: bool,
         enable_sensors: bool,
         enable_keyboard: bool,
+        environment: str = "apartment",
+        enable_human: bool = False,
+        human_cmd_topic: str = "/cmd_vel_human",
+        human_pos: tuple = (2.0, 0.0, 0.0),
+        human_yaw: float = 0.0,
+        human_vel_max: float = 1.5,
+        human_yaw_rate_max: float = 1.0,
+        human_scale: float = 1.0,
         robot_type: str = ROBOT_GO2,
     ) -> None:
         """
-        Creates the simulation world with preset physics_dt and render_dt and creates a robot inside the warehouse.
+        Creates the simulation world with preset physics_dt and render_dt and creates a robot.
 
         Argument:
         physics_dt {float} -- Physics downtime of the scene.
         render_dt {float} -- Render downtime of the scene.
+        environment {str} -- Environment to load: "warehouse" or "apartment".
         robot_type {str} -- Robot type: "go2" or "g1".
 
         """
         self._robot_type = robot_type
-        policy_path, env_path, deploy_path = _validate_policy_paths(policy_dir)
+        policy_path, env_path, deploy_path = _validate_policy_paths(
+            policy_dir, robot_type
+        )
 
-        env_cfg = parse_env_config(env_path)
+        if os.path.isfile(env_path):
+            env_cfg = parse_env_config(env_path)
+        else:
+            env_cfg = {}
         deploy_cfg = _load_yaml(deploy_path)
 
         usd_path = _resolve_usd_path(env_cfg, robot_type)
 
         # Get default init height based on robot type
-        default_z = G1_INIT_HEIGHT if robot_type == ROBOT_G1 else 0.4
+        if robot_type == ROBOT_TRON1:
+            default_z = TRON1_INIT_HEIGHT
+        elif robot_type == ROBOT_G1:
+            default_z = G1_INIT_HEIGHT
+        else:
+            default_z = 0.4
         init_pos = np.array(
             env_cfg.get("scene", {})
             .get("robot", {})
@@ -682,27 +1159,56 @@ class RobotRosRunner(object):
             .get("pos", (0.0, 0.0, default_z))
         )
 
+        if environment == "apartment":
+            ground_z = 0.22073
+            if robot_type == ROBOT_TRON1:
+                robot_height = TRON1_INIT_HEIGHT
+            elif robot_type == ROBOT_G1:
+                robot_height = G1_INIT_HEIGHT
+            else:
+                robot_height = 0.45
+            init_pos[2] = ground_z + robot_height
+            logger.debug("Adjusted robot init Z for apartment: %s", init_pos[2])
+
+        logger.debug("Robot init position: %s", init_pos)
+        logger.debug("Robot type: %s", robot_type)
+
         self._world = World(
             stage_units_in_meters=1.0, physics_dt=physics_dt, rendering_dt=render_dt
         )
         self._physics_dt = physics_dt
         self._render_dt = render_dt
 
-        assets_root_path = get_assets_root_path()
-        if assets_root_path is None:
-            raise RuntimeError("Could not find Isaac Sim assets folder")
-
-        prim = define_prim("/World/Warehouse", "Xform")
-        asset_path = (
-            assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
-        )
-        prim.GetReferences().AddReference(asset_path)
+        if environment == "apartment":
+            if not _add_apartment_environment():
+                raise RuntimeError("Failed to load Modern Apartment environment")
+            self._hide_default_ground()
+        else:
+            assets_root_path = get_assets_root_path()
+            if assets_root_path is None:
+                raise RuntimeError("Could not find Isaac Sim assets folder")
+            prim = define_prim("/World/Warehouse", "Xform")
+            asset_path = (
+                assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+            )
+            prim.GetReferences().AddReference(asset_path)
 
         if not usd_path:
             raise RuntimeError(f"{robot_type.upper()} USD path could not be resolved")
 
         # Create robot based on type
-        if robot_type == ROBOT_G1:
+        if robot_type == ROBOT_TRON1:
+            encoder_path = os.path.join(policy_dir, "exported", "encoder.pt")
+            self._robot = Tron1VelocityPolicy(
+                prim_path=robot_root,
+                name="Tron1",
+                usd_path=usd_path,
+                position=init_pos,
+                policy_path=policy_path,
+                encoder_path=encoder_path,
+                deploy_path=deploy_path,
+            )
+        elif robot_type == ROBOT_G1:
             self._robot = G1VelocityPolicy(
                 prim_path=robot_root,
                 name="G1",
@@ -768,6 +1274,21 @@ class RobotRosRunner(object):
         self.needs_reset = False
         self.first_step = True
 
+        # Human model state
+        self._enable_human = enable_human
+        self._human_cmd_topic = human_cmd_topic
+        self._human_init_pos = human_pos
+        self._human_init_yaw = human_yaw
+        self._human_vel_max = human_vel_max
+        self._human_yaw_rate_max = human_yaw_rate_max
+        self._human_scale = human_scale
+
+        self._human_prim = None
+        self._human_vel_attr = None
+        self._human_yaw_rate_attr = None
+        self._human_pos = [human_pos[0], human_pos[1]]
+        self._human_yaw = human_yaw
+
     def setup(self) -> None:
         """
         Set up keyboard listener and add physics callback.
@@ -803,9 +1324,13 @@ class RobotRosRunner(object):
         if self._render_dt:
             render_hz = 1.0 / self._render_dt
 
-        # G1: sensors on torso_link at higher positions
-        # Go2: sensors on base at lower positions
-        if self._robot_type == ROBOT_G1:
+        # Sensor positions depend on robot type
+        if self._robot_type == ROBOT_TRON1:
+            camera_link_pos = (0.15, 0.0, 0.05)
+            lidar_l1_pos = (0.1, 0.0, 0.05)
+            lidar_velo_pos = (0.1, 0.0, 0.05)
+            enable_lidar = True
+        elif self._robot_type == ROBOT_G1:
             camera_link_pos = (0.0, 0.0, 0.75)
             lidar_l1_pos = (0.2, 0.0, 0.4)
             lidar_velo_pos = (0.15, 0.0, 0.5)
@@ -823,7 +1348,6 @@ class RobotRosRunner(object):
             enable_lidar=enable_lidar,
             lidar_l1_position=lidar_l1_pos,
             lidar_velo_position=lidar_velo_pos,
-            robot_type=self._robot_type,
         )
 
         # Additional render steps to initialize camera render products
@@ -869,6 +1393,46 @@ class RobotRosRunner(object):
             simulation_app, robot_type=self._robot_type
         )
 
+    def setup_human(self) -> None:
+        """Set up the human model and ROS2 subscriber for velocity control."""
+        if not self._enable_human:
+            return
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        human_usdz_path = os.path.join(script_dir, "assets", "human", "human.usdz")
+
+        # Fallback to project root if not found in standalone assets
+        if not os.path.isfile(human_usdz_path):
+            project_root = os.path.dirname(script_dir)
+            human_usdz_path = os.path.join(project_root, "human.usdz")
+
+        if not os.path.isfile(human_usdz_path):
+            logger.warning(
+                "Human model not found at %s, skipping human setup", human_usdz_path
+            )
+            self._enable_human = False
+            return
+
+        self._human_prim = add_human_model(
+            human_usdz_path,
+            position=self._human_init_pos,
+            rotation_yaw=self._human_init_yaw,
+            scale=self._human_scale,
+        )
+
+        if self._human_prim:
+            self._human_vel_attr, self._human_yaw_rate_attr = setup_human_cmd_graph(
+                self._human_cmd_topic
+            )
+            logger.info(
+                "Human model initialized at (%s, %s)",
+                self._human_init_pos[0],
+                self._human_init_pos[1],
+            )
+        else:
+            logger.warning("Failed to add human model")
+            self._enable_human = False
+
     def _get_cmd_vel(self) -> Optional[np.ndarray]:
         if self._linear_attr is None or self._angular_attr is None:
             return None
@@ -911,7 +1475,9 @@ class RobotRosRunner(object):
 
         cmd = self._base_command.copy()
 
-        # Check if a new /cmd_vel message arrived via the OmniGraph counter
+        # Detect new /cmd_vel messages via the OmniGraph counter, and zero the
+        # command after CMD_VEL_TIMEOUT of silence so the robot stops if the
+        # controller dies mid-run.
         now = time.time()
         if self._cmd_vel_count_attr is not None:
             count = self._cmd_vel_count_attr.get()
@@ -935,6 +1501,36 @@ class RobotRosRunner(object):
         cmd = np.minimum(np.maximum(cmd, self._cmd_min), self._cmd_max)
         self._robot.forward(step_size, cmd)
         self._update_odom()
+
+        # Update human position if enabled
+        if (
+            self._enable_human
+            and self._human_prim is not None
+            and self._human_vel_attr is not None
+        ):
+            h_vel = self._human_vel_attr.get()
+            h_yaw_rate = self._human_yaw_rate_attr.get()
+            if h_vel is not None and h_yaw_rate is not None:
+                vel_x = ros_utils.clamp(
+                    float(h_vel[0]), -self._human_vel_max, self._human_vel_max
+                )
+                vel_y = ros_utils.clamp(
+                    float(h_vel[1]), -self._human_vel_max, self._human_vel_max
+                )
+                yaw_rate = ros_utils.clamp(
+                    float(h_yaw_rate[2]),
+                    -self._human_yaw_rate_max,
+                    self._human_yaw_rate_max,
+                )
+
+                new_x, new_y, new_yaw = integrate_human_velocity(
+                    self._human_pos, self._human_yaw, vel_x, vel_y, yaw_rate, step_size
+                )
+
+                self._human_pos = [new_x, new_y]
+                self._human_yaw = new_yaw
+
+                update_human_pose(self._human_prim, new_x, new_y, new_yaw)
 
     def run(self, real_time: bool) -> None:
         """
@@ -982,8 +1578,8 @@ def main():
         "--robot_type",
         type=str,
         default=ROBOT_GO2,
-        choices=[ROBOT_GO2, ROBOT_G1],
-        help="Robot type: go2 (quadruped) or g1 (humanoid)",
+        choices=[ROBOT_GO2, ROBOT_G1, ROBOT_TRON1],
+        help="Robot type: go2 (quadruped), g1 (humanoid), or tron1 (bipedal wheelfoot)",
     )
     parser.add_argument(
         "--policy_dir",
@@ -1009,17 +1605,67 @@ def main():
     parser.add_argument("--real_time", action="store_true", default=False)
     parser.add_argument("--physics_dt", type=float, default=1 / 200.0)
     parser.add_argument("--render_dt", type=float, default=1 / 60.0)
+    parser.add_argument(
+        "--environment",
+        type=str,
+        default="warehouse",
+        choices=["warehouse", "apartment"],
+        help="Environment to load: warehouse or apartment",
+    )
+    # Human model arguments
+    parser.add_argument(
+        "--human", action="store_true", help="Enable human pedestrian model"
+    )
+    parser.add_argument(
+        "--human_cmd_topic",
+        type=str,
+        default="/cmd_vel_human",
+        help="ROS2 topic for human velocity control",
+    )
+    parser.add_argument(
+        "--human_x", type=float, default=2.0, help="Human initial X position"
+    )
+    parser.add_argument(
+        "--human_y", type=float, default=0.0, help="Human initial Y position"
+    )
+    parser.add_argument(
+        "--human_z", type=float, default=0.0, help="Human initial Z position"
+    )
+    parser.add_argument(
+        "--human_yaw", type=float, default=0.0, help="Human initial yaw (degrees)"
+    )
+    parser.add_argument(
+        "--human_vel_max",
+        type=float,
+        default=1.5,
+        help="Maximum human velocity (m/s)",
+    )
+    parser.add_argument(
+        "--human_yaw_rate_max",
+        type=float,
+        default=1.0,
+        help="Maximum human yaw rate (rad/s)",
+    )
+    parser.add_argument(
+        "--human_scale", type=float, default=1.0, help="Human model scale factor"
+    )
     args, _ = parser.parse_known_args()
 
     # Set defaults based on robot type
     if args.policy_dir is None:
-        args.policy_dir = (
-            DEFAULT_G1_POLICY_DIR
-            if args.robot_type == ROBOT_G1
-            else DEFAULT_GO2_POLICY_DIR
-        )
+        if args.robot_type == ROBOT_TRON1:
+            args.policy_dir = DEFAULT_TRON1_POLICY_DIR
+        elif args.robot_type == ROBOT_G1:
+            args.policy_dir = DEFAULT_G1_POLICY_DIR
+        else:
+            args.policy_dir = DEFAULT_GO2_POLICY_DIR
     if args.robot_root is None:
-        args.robot_root = "/World/G1" if args.robot_type == ROBOT_G1 else "/World/Go2"
+        if args.robot_type == ROBOT_TRON1:
+            args.robot_root = "/World/Tron1"
+        elif args.robot_type == ROBOT_G1:
+            args.robot_root = "/World/G1"
+        else:
+            args.robot_root = "/World/Go2"
 
     logger.info("Running %s robot simulation", args.robot_type.upper())
 
@@ -1043,17 +1689,59 @@ def main():
             cmd_vel_only=args.cmd_vel_only,
             enable_sensors=not args.no_sensors,
             enable_keyboard=not args.no_keyboard,
+            environment=args.environment,
+            enable_human=args.human,
+            human_cmd_topic=args.human_cmd_topic,
+            human_pos=(args.human_x, args.human_y, args.human_z),
+            human_yaw=math.radians(args.human_yaw),
+            human_vel_max=args.human_vel_max,
+            human_yaw_rate_max=args.human_yaw_rate_max,
+            human_scale=args.human_scale,
             robot_type=args.robot_type,
         )
         simulation_app.update()
+
+        # Add human model BEFORE world.reset() to avoid PhysX BroadPhaseUpdateData crash
+        # Adding prims after physics simulation starts causes PhysX broadphase issues
+        runner.setup_human()
+        simulation_app.update()
+
         runner._world.reset()
+
+        if args.environment == "apartment":
+            from isaacsim.core.utils.viewports import set_camera_view
+
+            set_camera_view(
+                eye=[2.0, -2.0, 1.5],
+                target=[0.0, 0.0, 0.5],
+                camera_prim_path="/OmniverseKit_Persp",
+            )
         simulation_app.update()
         runner.setup()
         simulation_app.update()
         runner.setup_ros()
         simulation_app.update()
+
+        # Create AprilTag charging dock for auto-docking
+        # Z = apartment ground (0.22) + Go2 camera height (~0.35) = ~0.57
+        ground_z = 0.22073 if args.environment == "apartment" else 0.0
+        dock_z = ground_z + 0.35
+        dock_pos = (ros_utils.DOCK_POSITION[0], ros_utils.DOCK_POSITION[1], dock_z)
+        ros_utils.create_apriltag_dock(
+            simulation_app,
+            position=dock_pos,
+            rotation_deg=ros_utils.DOCK_YAW_DEG,
+            tag_size=0.2,
+        )
+        simulation_app.update()
+
+        # Lowstate is launched by the launch files; uncomment to spawn in-process instead.
+        # ros_utils.setup_lowstate_publisher()
+        # simulation_app.update()
+
         runner.run(real_time=args.real_time)
     finally:
+        # ros_utils.stop_lowstate_publisher()
         simulation_app.close()
 
 

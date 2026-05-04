@@ -148,12 +148,13 @@ def generate_launch_description():
         ],
     )
 
-    go2_lowstate_node = TimerAction(
+    # Use the Isaac-Sim-specific lowstate node, not gazebo's go2_lowstate_node.
+    lowstate_node = TimerAction(
         period=15.0,
         actions=[
             Node(
-                package="go2_sim",
-                executable="go2_lowstate_node",
+                package="isaac_sim",
+                executable="lowstate_node",
                 name="go2_lowstate_node",
                 output="screen",
             ),
@@ -211,7 +212,7 @@ def generate_launch_description():
             # Bridge nodes (after 15s delay for Isaac Sim startup)
             go2_remapping_node,
             go2_sport_node,
-            go2_lowstate_node,
+            lowstate_node,
         ]
         + sensor_entities
     )
