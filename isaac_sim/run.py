@@ -27,6 +27,7 @@ simulation_app = SimulationApp({"renderer": "RaytracedLighting", "headless": Fal
 import importlib.util as _ilu
 import os as _os
 import sys as _sys
+
 _local_utils_path = _os.path.join(
     _os.path.dirname(_os.path.abspath(__file__)), "utils.py"
 )
