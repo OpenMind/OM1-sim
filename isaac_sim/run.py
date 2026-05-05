@@ -6,10 +6,14 @@ Supports Go2 (quadruped) and G1 (humanoid) robots.
 Control robot velocity:
   ros2 topic pub /cmd_vel geometry_msgs/Twist "{linear: {x: 0.3, y: 0.0}, angular: {z: 0.2}}"
 
+Control human pedestrian (when --human is set):
+  ros2 topic pub /cmd_vel_human geometry_msgs/Twist "{linear: {x: 0.5, y: 0.0}, angular: {z: 0.3}}"
+
 Examples
 --------
-  python run.py --robot_type go2   # Run Go2 quadruped (default)
-  python run.py --robot_type g1    # Run G1 humanoid
+  python run.py --robot_type go2          # Run Go2 quadruped (default)
+  python run.py --robot_type g1           # Run G1 humanoid
+  python run.py --human                   # Spawn a human pedestrian, controllable on /cmd_vel_human
 """
 
 from isaacsim import SimulationApp
@@ -23,6 +27,7 @@ simulation_app = SimulationApp({"renderer": "RaytracedLighting", "headless": Fal
 import importlib.util as _ilu
 import os as _os
 import sys as _sys
+
 _local_utils_path = _os.path.join(
     _os.path.dirname(_os.path.abspath(__file__)), "utils.py"
 )
@@ -34,6 +39,7 @@ del _ilu, _os, _sys, _spec, _mod, _local_utils_path
 
 import argparse
 import logging
+import math
 import os
 import time
 from typing import Optional, Tuple
@@ -670,6 +676,13 @@ class RobotRosRunner(object):
         cmd_vel_only: bool,
         enable_sensors: bool,
         enable_keyboard: bool,
+        enable_human: bool = False,
+        human_cmd_topic: str = "/cmd_vel_human",
+        human_pos: tuple = (2.0, 0.0, 0.0),
+        human_yaw: float = 0.0,
+        human_vel_max: float = 1.5,
+        human_yaw_rate_max: float = 1.0,
+        human_scale: float = 1.0,
         robot_type: str = ROBOT_GO2,
     ) -> None:
         """
@@ -784,6 +797,21 @@ class RobotRosRunner(object):
         self.needs_reset = False
         self.first_step = True
 
+        # Human pedestrian model state
+        self._enable_human = enable_human
+        self._human_cmd_topic = human_cmd_topic
+        self._human_init_pos = human_pos
+        self._human_init_yaw = human_yaw
+        self._human_vel_max = human_vel_max
+        self._human_yaw_rate_max = human_yaw_rate_max
+        self._human_scale = human_scale
+
+        self._human_prim = None
+        self._human_vel_attr = None
+        self._human_yaw_rate_attr = None
+        self._human_pos = [human_pos[0], human_pos[1]]
+        self._human_yaw = human_yaw
+
     def setup(self) -> None:
         """
         Set up keyboard listener and add physics callback.
@@ -803,6 +831,46 @@ class RobotRosRunner(object):
         self._world.add_physics_callback(
             "go2_ros2_step", callback_fn=self.on_physics_step
         )
+
+    def setup_human(self) -> None:
+        """Set up the human model and ROS2 subscriber for velocity control."""
+        if not self._enable_human:
+            return
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        human_usdz_path = os.path.join(script_dir, "assets", "human", "human.usdz")
+
+        # Fallback to project root if not found in standalone assets
+        if not os.path.isfile(human_usdz_path):
+            project_root = os.path.dirname(script_dir)
+            human_usdz_path = os.path.join(project_root, "human.usdz")
+
+        if not os.path.isfile(human_usdz_path):
+            logger.warning(
+                "Human model not found at %s, skipping human setup", human_usdz_path
+            )
+            self._enable_human = False
+            return
+
+        self._human_prim = ros_utils.add_human_model(
+            human_usdz_path,
+            position=self._human_init_pos,
+            rotation_yaw=self._human_init_yaw,
+            scale=self._human_scale,
+        )
+
+        if self._human_prim:
+            self._human_vel_attr, self._human_yaw_rate_attr = (
+                ros_utils.setup_human_cmd_graph(self._human_cmd_topic)
+            )
+            logger.info(
+                "Human model initialized at (%s, %s)",
+                self._human_init_pos[0],
+                self._human_init_pos[1],
+            )
+        else:
+            logger.warning("Failed to add human model")
+            self._enable_human = False
 
     def setup_ros(self) -> None:
         """Set up ROS2 nodes for command velocity and sensor publishers."""
@@ -952,6 +1020,41 @@ class RobotRosRunner(object):
         self._robot.forward(step_size, cmd)
         self._update_odom()
 
+        # Update human position if enabled
+        if (
+            self._enable_human
+            and self._human_prim is not None
+            and self._human_vel_attr is not None
+        ):
+            h_vel = self._human_vel_attr.get()
+            h_yaw_rate = self._human_yaw_rate_attr.get()
+            if h_vel is not None and h_yaw_rate is not None:
+                vel_x = ros_utils.clamp(
+                    float(h_vel[0]), -self._human_vel_max, self._human_vel_max
+                )
+                vel_y = ros_utils.clamp(
+                    float(h_vel[1]), -self._human_vel_max, self._human_vel_max
+                )
+                yaw_rate = ros_utils.clamp(
+                    float(h_yaw_rate[2]),
+                    -self._human_yaw_rate_max,
+                    self._human_yaw_rate_max,
+                )
+
+                new_x, new_y, new_yaw = ros_utils.integrate_human_velocity(
+                    self._human_pos,
+                    self._human_yaw,
+                    vel_x,
+                    vel_y,
+                    yaw_rate,
+                    step_size,
+                )
+
+                self._human_pos = [new_x, new_y]
+                self._human_yaw = new_yaw
+
+                ros_utils.update_human_pose(self._human_prim, new_x, new_y, new_yaw)
+
     def run(self, real_time: bool) -> None:
         """
         Step simulation based on rendering downtime.
@@ -1025,6 +1128,43 @@ def main():
     parser.add_argument("--real_time", action="store_true", default=False)
     parser.add_argument("--physics_dt", type=float, default=1 / 200.0)
     parser.add_argument("--render_dt", type=float, default=1 / 60.0)
+    # Human pedestrian arguments
+    parser.add_argument(
+        "--human", action="store_true", help="Enable human pedestrian model"
+    )
+    parser.add_argument(
+        "--human_cmd_topic",
+        type=str,
+        default="/cmd_vel_human",
+        help="ROS2 topic for human velocity control",
+    )
+    parser.add_argument(
+        "--human_x", type=float, default=2.0, help="Human initial X position"
+    )
+    parser.add_argument(
+        "--human_y", type=float, default=0.0, help="Human initial Y position"
+    )
+    parser.add_argument(
+        "--human_z", type=float, default=0.0, help="Human initial Z position"
+    )
+    parser.add_argument(
+        "--human_yaw", type=float, default=0.0, help="Human initial yaw (degrees)"
+    )
+    parser.add_argument(
+        "--human_vel_max",
+        type=float,
+        default=1.5,
+        help="Maximum human velocity (m/s)",
+    )
+    parser.add_argument(
+        "--human_yaw_rate_max",
+        type=float,
+        default=1.0,
+        help="Maximum human yaw rate (rad/s)",
+    )
+    parser.add_argument(
+        "--human_scale", type=float, default=1.0, help="Human model scale factor"
+    )
     args, _ = parser.parse_known_args()
 
     # Set defaults based on robot type
@@ -1059,9 +1199,22 @@ def main():
             cmd_vel_only=args.cmd_vel_only,
             enable_sensors=not args.no_sensors,
             enable_keyboard=not args.no_keyboard,
+            enable_human=args.human,
+            human_cmd_topic=args.human_cmd_topic,
+            human_pos=(args.human_x, args.human_y, args.human_z),
+            human_yaw=math.radians(args.human_yaw),
+            human_vel_max=args.human_vel_max,
+            human_yaw_rate_max=args.human_yaw_rate_max,
+            human_scale=args.human_scale,
             robot_type=args.robot_type,
         )
         simulation_app.update()
+
+        # Add human model BEFORE world.reset() to avoid PhysX BroadPhaseUpdateData
+        # crashes that occur when prims are added after physics has started.
+        runner.setup_human()
+        simulation_app.update()
+
         runner._world.reset()
         simulation_app.update()
         runner.setup()
