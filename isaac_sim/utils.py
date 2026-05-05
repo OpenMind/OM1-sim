@@ -793,6 +793,8 @@ def setup_joint_states_publisher(simulation_app, robot_type: str = "go2") -> Non
 
     if robot_type == "g1":
         ROBOT_ARTICULATION_PATH = f"{GO2_STAGE_PATH}/torso_link"
+    elif robot_type == "tron1":
+        ROBOT_ARTICULATION_PATH = f"{GO2_STAGE_PATH}/base_Link"
     else:
         ROBOT_ARTICULATION_PATH = f"{GO2_STAGE_PATH}/base"
 
