@@ -39,5 +39,14 @@ export CYCLONEDDS_URI=file:///home/ubuntu/cyclonedds.xml
 export ROS_DOMAIN_ID=0
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:${ROS2_LIB}"
 
+ENV_FILE="/home/ubuntu/OM1-sim/.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+fi
+
+ROBOT_TYPE=${ROBOT_TYPE:-go2}
+
 cd /home/ubuntu/OM1-sim/isaac_sim
-exec python3 run.py --robot_type go2 --human
+exec python3 run.py --robot_type "$ROBOT_TYPE" --human

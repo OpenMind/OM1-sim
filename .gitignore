@@ -30,3 +30,6 @@ isaac_sim/assets/environment/
 # Isaac Sim venv
 isaac_sim/env_isaacsim/
 isaac_sim/__pycache__/
+
+# env
+.env
