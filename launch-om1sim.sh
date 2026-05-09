@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+# Truncate own log on every start.
+LOG_FILE="/home/ubuntu/OM1-sim/logs/sim.out"
+mkdir -p "$(dirname "$LOG_FILE")"
+: > "$LOG_FILE"
+
 # pick DCV display (matches launch-isaac-sim.sh logic)
 unset DISPLAY XAUTHORITY
 for d in :0 :1; do
