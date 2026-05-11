@@ -13,29 +13,13 @@ Examples
 --------
   python run.py --robot_type go2          # Run Go2 quadruped (default)
   python run.py --robot_type g1           # Run G1 humanoid
+  python run.py --robot_type tron1        # Run TRON1 bipedal wheelfoot
   python run.py --human                   # Spawn a human pedestrian, controllable on /cmd_vel_human
 """
 
 from isaacsim import SimulationApp
 
 simulation_app = SimulationApp({"renderer": "RaytracedLighting", "headless": False})
-
-# Isaac Sim mutates sys.path during SimulationApp() init so cv2/utils/
-# becomes importable as a bare "utils" module. Pre-load our local utils.py
-# under the name "utils" so subsequent `import utils as ros_utils` and
-# `from utils import ...` resolve correctly.
-import importlib.util as _ilu
-import os as _os
-import sys as _sys
-
-_local_utils_path = _os.path.join(
-    _os.path.dirname(_os.path.abspath(__file__)), "utils.py"
-)
-_spec = _ilu.spec_from_file_location("utils", _local_utils_path)
-_mod = _ilu.module_from_spec(_spec)
-_sys.modules["utils"] = _mod
-_spec.loader.exec_module(_mod)
-del _ilu, _os, _sys, _spec, _mod, _local_utils_path
 
 import argparse
 import logging
@@ -843,9 +827,11 @@ class Tron1VelocityPolicy:
         return latent
 
     def post_reset(self) -> None:
+        """Reset robot state after an episode."""
         self.robot.post_reset()
 
     def initialize(self, physics_sim_view=None) -> None:
+        """Initialize robot articulation and physics simulation."""
         from omni.physx import get_physx_simulation_interface
 
         self.robot.initialize(physics_sim_view=physics_sim_view)
@@ -1005,7 +991,7 @@ class RobotRosRunner(object):
         Argument:
         physics_dt {float} -- Physics downtime of the scene.
         render_dt {float} -- Render downtime of the scene.
-        robot_type {str} -- Robot type: "go2" or "g1".
+        robot_type {str} -- Robot type: "go2", "g1", or "tron1".
 
         """
         self._robot_type = robot_type
@@ -1231,8 +1217,8 @@ class RobotRosRunner(object):
             enable_lidar = True
         else:
             camera_link_pos = (0.3, 0.0, 0.10)
-            lidar_l1_pos = (0.15, 0.0, 0.15)
-            lidar_velo_pos = (0.1, 0.0, 0.2)
+            lidar_l1_pos = (0.3, 0.0, 0.08)
+            lidar_velo_pos = (0.25, 0.0, 0.13)
             enable_lidar = True
 
         self._sensors = ros_utils.setup_sensors_delayed(
@@ -1428,7 +1414,7 @@ class RobotRosRunner(object):
 def main():
     """
     Instantiate the robot runner with ROS2 + sensors.
-    Supports Go2 (quadruped) and G1 (humanoid) robots.
+    Supports Go2 (quadruped), G1 (humanoid), and TRON1 (bipedal wheelfoot) robots.
 
     """
     parser = argparse.ArgumentParser()
