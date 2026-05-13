@@ -1,4 +1,5 @@
 import os
+import subprocess
 
 from launch import LaunchDescription
 from launch.actions import (
@@ -7,80 +8,115 @@ from launch.actions import (
     SetEnvironmentVariable,
     TimerAction,
 )
+from launch.conditions import IfCondition
 from launch.substitutions import FindExecutable, LaunchConfiguration
-from launch_ros.actions import Node
+
+
+def _detect_cyclonedds_interface() -> str:
+    """Pick a CycloneDDS network interface.
+
+    CycloneDDS can't bind to `lo` for typical multi-process discovery (lo is
+    not multicast-capable), so fall back to the first UP non-loopback
+    interface. Honor `CYCLONEDDS_INTERFACE` if the user already set one.
+    """
+    explicit = os.environ.get("CYCLONEDDS_INTERFACE")
+    if explicit:
+        return explicit
+    try:
+        out = subprocess.check_output(
+            ["ip", "-br", "link"], text=True, stderr=subprocess.DEVNULL
+        )
+    except Exception:
+        return "lo"
+    candidates = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        name, state = parts[0], parts[1]
+        if name == "lo" or state != "UP":
+            continue
+        if name.startswith(("docker", "br-", "veth")):
+            continue
+        candidates.append(name)
+    for prefix in ("en", "eth", "wl"):
+        for c in candidates:
+            if c.startswith(prefix):
+                return c
+    return candidates[0] if candidates else "lo"
 
 
 def generate_launch_description():
     """
-    Launch file for Isaac Sim simulation with OM1.
+    Launch file for Isaac Sim simulation with OM1 (OM1-ros2-sdk layout).
 
     Launches:
-      1. Isaac Sim (run.py) in its own Python 3.11 venv
-      2. Bridge nodes: go2_remapping, go2_sport, go2_lowstate (from go2_sim)
-      3. Sensor nodes: om_path, obstacle detection, traversability (from OM1-ros2-sdk)
+      1. Isaac Sim (run.py) in its own Python venv
+      2. Sensor + bridge nodes: go2_sdk/sensor_launch.py use_sim:=true
+         (which brings up go2_lowstate_node from go2_gazebo_sim)
 
     Usage:
       ros2 launch isaac_sim isaac_sim_launch.py
       ros2 launch isaac_sim isaac_sim_launch.py robot_type:=g1
-      ros2 launch isaac_sim isaac_sim_launch.py policy_dir:=/path/to/policy
-
-    After launching, run Zenoh bridge and OM1 separately:
-      zenoh-bridge-ros2dds -c zenoh/zenoh_bridge_config.json5
-      cd ~/Documents/GitHub/OM1 && uv run src/run.py go2_sim_autonomy
+      ros2 launch isaac_sim isaac_sim_launch.py isaac_sim_venv:=/path/to/venv
     """
-
     # --- Paths ----------------------------------------------------------------
 
-    # Resolve OM1-sim workspace root.
-    # This launch file lives at:
-    #   source:  <workspace>/isaac_sim/launch/isaac_sim_launch.py
-    #   install: <workspace>/install/isaac_sim/share/isaac_sim/launch/isaac_sim_launch.py
-    # We search upward for cyclonedds/ directory to find the workspace root.
+    # Resolve OM1-ros2-sdk workspace root.
     _this_dir = os.path.dirname(os.path.abspath(__file__))
-    om1_sim_dir = _this_dir
-    for _ in range(6):
-        om1_sim_dir = os.path.dirname(om1_sim_dir)
-        if os.path.isdir(os.path.join(om1_sim_dir, "cyclonedds")):
+    workspace_root = _this_dir
+    for _ in range(8):
+        workspace_root = os.path.dirname(workspace_root)
+        if os.path.isdir(os.path.join(workspace_root, "cyclonedds")):
             break
 
-    isaac_sim_src = os.path.join(om1_sim_dir, "isaac_sim")
-    isaac_sim_venv = os.path.join(isaac_sim_src, "env_isaacsim")
+    isaac_sim_src = os.path.join(workspace_root, "unitree", "isaac_sim")
+    cyclonedds_xml = os.path.join(workspace_root, "cyclonedds", "cyclonedds.xml")
+    ros2_sdk_setup = os.path.join(workspace_root, "install", "setup.bash")
 
-    cyclonedds_xml = os.path.join(om1_sim_dir, "cyclonedds", "cyclonedds.xml")
-
-    ros2_bridge_lib = os.path.join(
-        isaac_sim_venv,
-        "lib/python3.11/site-packages/isaacsim/exts/" "isaacsim.ros2.bridge/humble/lib",
+    # Venv location: prefer ISAAC_SIM_VENV env var, then ~/env_isaacsim, then
+    # <isaac_sim_src>/env_isaacsim.
+    default_venv_candidates = [
+        os.environ.get("ISAAC_SIM_VENV", ""),
+        os.path.expanduser("~/env_isaacsim"),
+        os.path.join(isaac_sim_src, "env_isaacsim"),
+    ]
+    default_venv = next(
+        (p for p in default_venv_candidates if p and os.path.isdir(p)), ""
     )
-
-    # OM1-ros2-sdk (sibling directory)
-    om1_ros2_sdk_dir = os.environ.get(
-        "OM1_ROS2_SDK_DIR",
-        os.path.join(os.path.dirname(om1_sim_dir), "OM1-ros2-sdk"),
-    )
-    om1_ros2_sdk_setup = os.path.join(om1_ros2_sdk_dir, "install", "setup.bash")
-    has_ros2_sdk = os.path.isfile(om1_ros2_sdk_setup)
 
     # --- Launch Arguments -----------------------------------------------------
 
     robot_type = LaunchConfiguration("robot_type")
+    isaac_sim_venv = LaunchConfiguration("isaac_sim_venv")
+    launch_sensors = LaunchConfiguration("launch_sensors")
 
     declare_robot_type = DeclareLaunchArgument(
         "robot_type",
         default_value="go2",
-        description="Robot type: go2 or g1",
+        description="Robot type: go2, g1, or tron1",
     )
     declare_policy_dir = DeclareLaunchArgument(
         "policy_dir",
         default_value="",
         description="Path to policy directory (uses default if empty)",
     )
+    declare_venv = DeclareLaunchArgument(
+        "isaac_sim_venv",
+        default_value=default_venv,
+        description="Path to Isaac Sim Python venv (must have run.py-compatible isaacsim install)",
+    )
     declare_launch_sensors = DeclareLaunchArgument(
         "launch_sensors",
-        default_value="true" if has_ros2_sdk else "false",
-        description="Launch sensor nodes from OM1-ros2-sdk (om_path, etc.)",
+        default_value="true" if os.path.isfile(ros2_sdk_setup) else "false",
+        description="Launch sensor nodes from go2_sdk (om_path, obstacle detector, etc.)",
     )
+    declare_cyclonedds_iface = DeclareLaunchArgument(
+        "cyclonedds_interface",
+        default_value=_detect_cyclonedds_interface(),
+        description="Network interface for CycloneDDS (e.g. eth0, wlan0)",
+    )
+    cyclonedds_iface = LaunchConfiguration("cyclonedds_interface")
 
     # --- Environment ----------------------------------------------------------
 
@@ -90,11 +126,15 @@ def generate_launch_description():
     set_cyclonedds = SetEnvironmentVariable(
         name="CYCLONEDDS_URI", value="file://" + cyclonedds_xml
     )
+    set_cyclonedds_iface = SetEnvironmentVariable(
+        name="CYCLONEDDS_INTERFACE", value=cyclonedds_iface
+    )
 
     # --- 1. Isaac Sim ---------------------------------------------------------
 
-    # Isaac Sim must run inside its own Python 3.11 venv with special env vars.
-    # We use ExecuteProcess with bash to activate the venv and run run.py.
+    # Isaac Sim must run inside its own Python venv with the isaacsim package.
+    # ros2_bridge_lib is added to LD_LIBRARY_PATH so the in-process ROS2 bridge
+    # extension can resolve its shared libs.
     isaac_sim_cmd = [
         FindExecutable(name="bash"),
         "-c",
@@ -104,13 +144,18 @@ def generate_launch_description():
             "/bin/activate && "
             "export ROS_DISTRO=humble && "
             "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && "
-            "export CYCLONEDDS_URI=file://",
+            "export CYCLONEDDS_INTERFACE=",
+            cyclonedds_iface,
+            " && export CYCLONEDDS_URI=file://",
             cyclonedds_xml,
-            " && " "export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:",
-            ros2_bridge_lib,
-            " && " "cd ",
+            " && PY_VER=$(python3 -c \"import sys; print(f'python{sys.version_info.major}.{sys.version_info.minor}')\") && BRIDGE_DIR=",
+            isaac_sim_venv,
+            "/lib/$PY_VER/site-packages/isaacsim/exts/isaacsim.ros2.bridge/humble"
+            " && export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$BRIDGE_DIR/lib"
+            " && export PYTHONPATH=$BRIDGE_DIR/rclpy:$PYTHONPATH"
+            " && cd ",
             isaac_sim_src,
-            " && " "python3 run.py --robot_type ",
+            " && python3 run.py --robot_type ",
             robot_type,
         ],
     ]
@@ -122,64 +167,22 @@ def generate_launch_description():
         shell=False,
     )
 
-    # --- 2. Bridge Nodes (delayed to let Isaac Sim start) ---------------------
-
-    go2_remapping_node = TimerAction(
-        period=15.0,
-        actions=[
-            Node(
-                package="go2_sim",
-                executable="go2_remapping_node",
-                name="go2_remapping_node",
-                output="screen",
-            ),
-        ],
-    )
-
-    go2_sport_node = TimerAction(
-        period=15.0,
-        actions=[
-            Node(
-                package="go2_sim",
-                executable="go2_sport_node",
-                name="go2_sport_node",
-                output="screen",
-            ),
-        ],
-    )
-
-    # Use the Isaac-Sim-specific lowstate node, not gazebo's go2_lowstate_node.
-    lowstate_node = TimerAction(
-        period=15.0,
-        actions=[
-            Node(
-                package="isaac_sim",
-                executable="lowstate_node",
-                name="go2_lowstate_node",
-                output="screen",
-            ),
-        ],
-    )
-
-    # --- 3. Sensor Nodes (from OM1-ros2-sdk, delayed further) -----------------
-
-    # The sensor nodes (om_path, d435_obstacle_dector, local_traversability,
-    # d435_isaac_sim_scaler) come from OM1-ros2-sdk's go2_sdk package.
-    # We launch them via ExecuteProcess so we can source the correct workspace.
-
+    # --- 2. Sensor Nodes (from go2_sdk, delayed to let Isaac Sim start) -------
     sensor_entities = []
-    if has_ros2_sdk:
+    if os.path.isfile(ros2_sdk_setup):
         sensor_launch_cmd = [
             FindExecutable(name="bash"),
             "-c",
             [
-                "source /opt/ros/humble/setup.bash && " "source ",
-                om1_ros2_sdk_setup,
-                " && "
-                "export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && "
-                "export CYCLONEDDS_URI=file://",
+                "export PATH=/usr/bin:$PATH && "
+                "source /opt/ros/humble/setup.bash && source ",
+                ros2_sdk_setup,
+                " && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
+                " && export CYCLONEDDS_INTERFACE=",
+                cyclonedds_iface,
+                " && export CYCLONEDDS_URI=file://",
                 cyclonedds_xml,
-                " && " "ros2 launch go2_sdk sensor_launch.py use_sim:=true",
+                " && ros2 launch go2_sdk sensor_launch.py use_sim:=true",
             ],
         ]
 
@@ -193,6 +196,7 @@ def generate_launch_description():
                     shell=False,
                 ),
             ],
+            condition=IfCondition(launch_sensors),
         )
         sensor_entities.append(sensor_launch_process)
 
@@ -200,19 +204,15 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            # Arguments
             declare_robot_type,
             declare_policy_dir,
+            declare_venv,
             declare_launch_sensors,
-            # Environment
+            declare_cyclonedds_iface,
             set_rmw,
             set_cyclonedds,
-            # Isaac Sim
+            set_cyclonedds_iface,
             isaac_sim_process,
-            # Bridge nodes (after 15s delay for Isaac Sim startup)
-            go2_remapping_node,
-            go2_sport_node,
-            lowstate_node,
         ]
         + sensor_entities
     )
