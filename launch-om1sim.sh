@@ -52,6 +52,7 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 ROBOT_TYPE=${ROBOT_TYPE:-go2}
+ENVIRONMENT_TYPE=${ENVIRONMENT_TYPE:-warehouse}
 
 cd /home/ubuntu/OM1-sim/isaac_sim
-exec python3 run.py --robot_type "$ROBOT_TYPE" --human
+exec python3 run.py --robot_type "$ROBOT_TYPE" --human --environment "$ENVIRONMENT_TYPE"
