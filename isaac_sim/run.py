@@ -13,6 +13,7 @@ Examples
 --------
   python run.py --robot_type go2          # Run Go2 quadruped (default)
   python run.py --robot_type g1           # Run G1 humanoid
+  python run.py --robot_type tron1        # Run TRON1 bipedal wheelfoot
   python run.py --human                   # Spawn a human pedestrian, controllable on /cmd_vel_human
 """
 
@@ -80,6 +81,17 @@ G1_HISTORY_LENGTH = 5
 TRON1_INIT_HEIGHT = 0.966
 TRON1_HISTORY_LENGTH = 10
 CMD_VEL_TIMEOUT = 0.5  # seconds – stop if no new /cmd_vel received
+
+ENV_WAREHOUSE = "warehouse"
+ENV_APARTMENT = "apartment"
+APARTMENT_STAGE_PATH = "/World/Environment"
+APARTMENT_USD_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "assets",
+    "environment",
+    "Modern_Apartment.usdz",
+)
+APARTMENT_GROUND_Z = 0.22073
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +301,75 @@ def _configure_ros_utils_paths(robot_root: str, robot_type: str = ROBOT_GO2) -> 
         ros_utils.VELO_LIDAR_PRIM = (
             f"{ros_utils.VELO_LASER_LINK_PRIM}/velodyne_vlp16_rtx"
         )
+
+
+def _add_apartment_environment() -> bool:
+    """Reference the Modern Apartment USDZ and set up matching ground + lighting."""
+    import omni.usd
+    from isaacsim.core.utils import stage as stage_utils
+    from pxr import Gf, UsdGeom, UsdLux, UsdPhysics
+
+    if not os.path.isfile(APARTMENT_USD_PATH):
+        carb.log_error(f"Apartment USD file not found: {APARTMENT_USD_PATH}")
+        return False
+
+    usd_stage = omni.usd.get_context().get_stage()
+
+    stage_utils.add_reference_to_stage(APARTMENT_USD_PATH, APARTMENT_STAGE_PATH)
+
+    env_prim = usd_stage.GetPrimAtPath(APARTMENT_STAGE_PATH)
+    if not env_prim or not env_prim.IsValid():
+        carb.log_error(
+            f"Failed to load apartment environment USD: {APARTMENT_USD_PATH}"
+        )
+        return False
+
+    xform = UsdGeom.Xformable(env_prim)
+    xform.ClearXformOpOrder()
+    xform.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, -0.012))
+    xform.AddRotateXYZOp().Set(Gf.Vec3f(90.0, 0.0, 0.0))
+    xform.AddScaleOp().Set(Gf.Vec3f(0.01, 0.01, 0.01))
+
+    ground_path = "/World/GroundPlane"
+    ground_xform_prim = usd_stage.DefinePrim(ground_path, "Xform")
+    ground_xform = UsdGeom.Xformable(ground_xform_prim)
+    ground_xform.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, APARTMENT_GROUND_Z))
+    plane_prim = usd_stage.DefinePrim(f"{ground_path}/CollisionPlane", "Plane")
+    plane_geom = UsdGeom.Plane(plane_prim)
+    plane_geom.CreateAxisAttr("Z")
+    plane_geom.CreateExtentAttr([(-50, -50, 0), (50, 50, 0)])
+    UsdPhysics.CollisionAPI.Apply(plane_prim)
+    UsdGeom.Imageable(plane_prim).MakeInvisible()
+
+    dome_light = UsdLux.DomeLight.Define(usd_stage, "/World/DomeLight")
+    dome_light.CreateIntensityAttr(500.0)
+
+    distant_light = UsdLux.DistantLight.Define(usd_stage, "/World/DistantLight")
+    distant_light.CreateIntensityAttr(1500.0)
+    distant_xform = UsdGeom.Xformable(distant_light.GetPrim())
+    distant_xform.AddRotateXYZOp().Set(Gf.Vec3f(-45.0, 30.0, 0.0))
+
+    ceiling_z = APARTMENT_GROUND_Z + 2.5
+    light_positions = [
+        (0.0, 0.0),
+        (5.0, 0.0),
+        (-3.0, 0.0),
+        (0.0, -2.0),
+        (5.0, -2.0),
+        (-3.0, -2.0),
+        (10.0, 0.0),
+        (10.0, -2.0),
+    ]
+    for i, (x, y) in enumerate(light_positions):
+        sphere_light = UsdLux.SphereLight.Define(usd_stage, f"/World/CeilingLight_{i}")
+        sphere_light.CreateIntensityAttr(30000.0)
+        sphere_light.CreateRadiusAttr(0.15)
+        sphere_light.CreateColorAttr(Gf.Vec3f(1.0, 0.95, 0.9))
+        light_xform = UsdGeom.Xformable(sphere_light.GetPrim())
+        light_xform.AddTranslateOp().Set(Gf.Vec3d(x, y, ceiling_z))
+
+    logger.info("Modern Apartment environment loaded")
+    return True
 
 
 def _validate_policy_paths(
@@ -843,9 +924,11 @@ class Tron1VelocityPolicy:
         return latent
 
     def post_reset(self) -> None:
+        """Reset robot state after an episode."""
         self.robot.post_reset()
 
     def initialize(self, physics_sim_view=None) -> None:
+        """Initialize robot articulation and physics simulation."""
         from omni.physx import get_physx_simulation_interface
 
         self.robot.initialize(physics_sim_view=physics_sim_view)
@@ -998,6 +1081,7 @@ class RobotRosRunner(object):
         human_yaw_rate_max: float = 1.0,
         human_scale: float = 1.0,
         robot_type: str = ROBOT_GO2,
+        environment: str = ENV_WAREHOUSE,
     ) -> None:
         """
         Creates the simulation world with preset physics_dt and render_dt and creates a robot inside the warehouse.
@@ -1005,7 +1089,7 @@ class RobotRosRunner(object):
         Argument:
         physics_dt {float} -- Physics downtime of the scene.
         render_dt {float} -- Render downtime of the scene.
-        robot_type {str} -- Robot type: "go2" or "g1".
+        robot_type {str} -- Robot type: "go2", "g1", or "tron1".
 
         """
         self._robot_type = robot_type
@@ -1035,21 +1119,35 @@ class RobotRosRunner(object):
             .get("pos", (0.0, 0.0, default_z))
         )
 
+        self._environment = environment
+        if environment == ENV_APARTMENT:
+            if robot_type == ROBOT_TRON1:
+                robot_height = TRON1_INIT_HEIGHT
+            elif robot_type == ROBOT_G1:
+                robot_height = G1_INIT_HEIGHT
+            else:
+                robot_height = 0.45
+            init_pos[2] = APARTMENT_GROUND_Z + robot_height
+
         self._world = World(
             stage_units_in_meters=1.0, physics_dt=physics_dt, rendering_dt=render_dt
         )
         self._physics_dt = physics_dt
         self._render_dt = render_dt
 
-        assets_root_path = get_assets_root_path()
-        if assets_root_path is None:
-            raise RuntimeError("Could not find Isaac Sim assets folder")
-
-        prim = define_prim("/World/Warehouse", "Xform")
-        asset_path = (
-            assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
-        )
-        prim.GetReferences().AddReference(asset_path)
+        if environment == ENV_APARTMENT:
+            if not _add_apartment_environment():
+                raise RuntimeError("Failed to load Modern Apartment environment")
+            self._hide_default_ground()
+        else:
+            assets_root_path = get_assets_root_path()
+            if assets_root_path is None:
+                raise RuntimeError("Could not find Isaac Sim assets folder")
+            prim = define_prim("/World/Warehouse", "Xform")
+            asset_path = (
+                assets_root_path + "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+            )
+            prim.GetReferences().AddReference(asset_path)
 
         if not usd_path:
             raise RuntimeError(f"{robot_type.upper()} USD path could not be resolved")
@@ -1147,6 +1245,30 @@ class RobotRosRunner(object):
         self._human_pos = [human_pos[0], human_pos[1]]
         self._human_yaw = human_yaw
 
+    def _hide_default_ground(self) -> None:
+        """Hide any default ground planes World may have spawned."""
+        import omni.usd
+        from pxr import UsdGeom
+
+        usd_stage = omni.usd.get_context().get_stage()
+        ground_paths = [
+            "/World/defaultGroundPlane",
+            "/World/GroundPlane/GroundPlane",
+            "/World/ground",
+            "/World/ground/GroundPlane",
+        ]
+        for path in ground_paths:
+            prim = usd_stage.GetPrimAtPath(path)
+            if not prim or not prim.IsValid():
+                continue
+            imageable = UsdGeom.Imageable(prim)
+            if imageable:
+                imageable.MakeInvisible()
+            for child in prim.GetAllChildren():
+                child_imageable = UsdGeom.Imageable(child)
+                if child_imageable:
+                    child_imageable.MakeInvisible()
+
     def setup(self) -> None:
         """
         Set up keyboard listener and add physics callback.
@@ -1231,8 +1353,8 @@ class RobotRosRunner(object):
             enable_lidar = True
         else:
             camera_link_pos = (0.3, 0.0, 0.10)
-            lidar_l1_pos = (0.15, 0.0, 0.15)
-            lidar_velo_pos = (0.1, 0.0, 0.2)
+            lidar_l1_pos = (0.3, 0.0, 0.08)
+            lidar_velo_pos = (0.25, 0.0, 0.13)
             enable_lidar = True
 
         self._sensors = ros_utils.setup_sensors_delayed(
@@ -1428,7 +1550,7 @@ class RobotRosRunner(object):
 def main():
     """
     Instantiate the robot runner with ROS2 + sensors.
-    Supports Go2 (quadruped) and G1 (humanoid) robots.
+    Supports Go2 (quadruped), G1 (humanoid), and TRON1 (bipedal wheelfoot) robots.
 
     """
     parser = argparse.ArgumentParser()
@@ -1500,6 +1622,13 @@ def main():
     parser.add_argument(
         "--human_scale", type=float, default=1.0, help="Human model scale factor"
     )
+    parser.add_argument(
+        "--environment",
+        type=str,
+        default=ENV_WAREHOUSE,
+        choices=[ENV_WAREHOUSE, ENV_APARTMENT],
+        help="Scene to load: warehouse (Isaac default) or apartment (Modern_Apartment.usdz)",
+    )
     args, _ = parser.parse_known_args()
 
     # Set defaults based on robot type
@@ -1548,6 +1677,7 @@ def main():
             human_yaw_rate_max=args.human_yaw_rate_max,
             human_scale=args.human_scale,
             robot_type=args.robot_type,
+            environment=args.environment,
         )
         simulation_app.update()
 
@@ -1557,6 +1687,14 @@ def main():
         simulation_app.update()
 
         runner._world.reset()
+        if args.environment == ENV_APARTMENT:
+            from isaacsim.core.utils.viewports import set_camera_view
+
+            set_camera_view(
+                eye=[2.0, -2.0, 1.5],
+                target=[0.0, 0.0, 0.5],
+                camera_prim_path="/OmniverseKit_Persp",
+            )
         simulation_app.update()
         runner.setup()
         simulation_app.update()

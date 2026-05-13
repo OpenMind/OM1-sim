@@ -184,7 +184,8 @@ def add_human_model(
         rotation_yaw: Initial yaw rotation in radians
         scale: Scale factor for the human model (default 1.0)
 
-    Returns:
+    Returns
+    -------
         The human prim if successful, None otherwise
     """
     import carb
@@ -324,7 +325,8 @@ def integrate_human_velocity(
         yaw_rate: Yaw rate (rad/s)
         dt: Time step (seconds)
 
-    Returns:
+    Returns
+    -------
         Tuple of (new_x, new_y, new_yaw)
     """
     new_yaw = current_yaw + yaw_rate * dt
@@ -455,9 +457,9 @@ def setup_sensors_delayed(
     if camera_link_position is None:
         camera_link_position = (0.3, 0.0, 0.35)
     if lidar_l1_position is None:
-        lidar_l1_position = (0.15, 0.0, 0.15)
+        lidar_l1_position = (0.3, 0.0, 0.08)
     if lidar_velo_position is None:
-        lidar_velo_position = (0.1, 0.0, 0.2)
+        lidar_velo_position = (0.25, 0.0, 0.13)
 
     sensors = {
         "realsense_depth_camera": None,
@@ -676,8 +678,8 @@ def setup_static_tfs(simulation_app) -> None:
     # Format: (parent, child, translation, rotation_xyzw)
     static_transforms = [
         ("base_link", "base", [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
-        ("base", "lidar_l1_link", [0.15, 0.0, 0.15], [0.0, 0.0, 0.0, 1.0]),
-        ("base", "velodyne_base_link", [0.1, 0.0, 0.2], [0.0, 0.0, 0.0, 1.0]),
+        ("base", "lidar_l1_link", [0.3, 0.0, 0.08], [0.0, 0.0, 0.0, 1.0]),
+        ("base", "velodyne_base_link", [0.25, 0.0, 0.13], [0.0, 0.0, 0.0, 1.0]),
         ("velodyne_base_link", "laser", [0.0, 0.0, 0.0377], [0.0, 0.0, 0.0, 1.0]),
         ("base", "imu_link", [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
         ("base", "camera_link", [0.3, 0.0, 0.1], [0.5, -0.5, -0.5, 0.5]),

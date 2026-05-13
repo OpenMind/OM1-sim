@@ -10,7 +10,8 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>go2_sim</exec_depend>
+  <exec_depend>go2_gazebo_sim</exec_depend>
+  <exec_depend>go2_sdk</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
