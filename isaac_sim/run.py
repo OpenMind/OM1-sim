@@ -1398,12 +1398,12 @@ class RobotRosRunner(object):
             simulation_app,
             topic="/camera/realsense2_camera_node/color/camera_info",
             frame_id="realsense_depth_camera",
-            width=480,
-            height=270,
-            fx=242.479,
-            fy=242.479,
-            cx=242.736,
-            cy=133.273,
+            width=424,
+            height=240,
+            fx=214.157,
+            fy=215.537,
+            cx=214.384,
+            cy=118.465,
         )
 
         ros_utils.setup_joint_states_publisher(

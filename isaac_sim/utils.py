@@ -508,7 +508,7 @@ def setup_sensors_delayed(
         realsense_rgb_camera = Camera(
             prim_path=REALSENSE_RGB_CAMERA_PRIM,
             name="realsense_rgb_camera",
-            resolution=(640, 480),
+            resolution=(424, 240),
         )
         realsense_rgb_camera.initialize()
 
@@ -889,8 +889,8 @@ def setup_color_camerainfo_graph(
     simulation_app,
     topic="/camera/realsense2_camera_node/color/camera_info",
     frame_id="realsense_depth_camera",
-    width=480,
-    height=270,
+    width=424,
+    height=240,
     fx=320.0,
     fy=320.0,
     cx=None,
