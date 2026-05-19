@@ -838,8 +838,8 @@ def setup_color_camera_publishers(sensors, simulation_app) -> None:
     import omni.syntheticdata as syn_data
     import omni.syntheticdata._syntheticdata as sd
 
-    if sensors.get("realsense_depth_camera"):
-        cam = sensors["realsense_depth_camera"]
+    if sensors.get("realsense_rgb_camera"):
+        cam = sensors["realsense_rgb_camera"]
         rp = cam.get_render_product_path()
         if rp:
             try:
@@ -849,7 +849,7 @@ def setup_color_camera_publishers(sensors, simulation_app) -> None:
                 )
                 w = rep.writers.get(rv + "ROS2PublishImage")
                 w.initialize(
-                    frameId="realsense_depth_camera",
+                    frameId="realsense_rgb_camera",
                     nodeNamespace="",
                     queueSize=10,
                     topicName="/camera/realsense2_camera_node/color/image_isaac_sim_raw",
