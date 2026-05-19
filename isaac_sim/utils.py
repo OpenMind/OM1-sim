@@ -27,7 +27,8 @@ IMU_PRIM = f"{GO2_STAGE_PATH}/base/imu_link"
 CAMERA_LINK_PRIM = f"{GO2_STAGE_PATH}/base/camera_link"
 REALSENSE_DEPTH_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/realsense_depth_camera"
 REALSENSE_RGB_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/realsense_rgb_camera"
-GO2_RGB_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/go2_rgb_camera"
+FRONT_RGB_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/front_rgb_camera"
+TOP_RGB_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/top_rgb_camera"
 L1_LINK_PRIM = f"{GO2_STAGE_PATH}/base/lidar_l1_link"
 L1_LIDAR_PRIM = f"{L1_LINK_PRIM}/lidar_l1_rtx"
 VELO_BASE_LINK_PRIM = f"{GO2_STAGE_PATH}/base/velodyne_base_link"
@@ -464,7 +465,8 @@ def setup_sensors_delayed(
     sensors = {
         "realsense_depth_camera": None,
         "realsense_rgb_camera": None,
-        "go2_rgb_camera": None,
+        "robot_front_rgb_camera": None,
+        "robot_top_rgb_camera": None,
         "imu": None,
     }
 
@@ -530,32 +532,57 @@ def setup_sensors_delayed(
         sensors["realsense_rgb_camera"] = realsense_rgb_camera
         logger.info("[Sensors] RealSense RGB camera initialized")
 
-        # Only add go2_rgb_camera for go2 robot
-        if robot_type == "go2":
-            go2_rgb_camera = Camera(
-                prim_path=GO2_RGB_CAMERA_PRIM,
-                name="go2_rgb_camera",
-                resolution=(640, 480),
+        # add robot front camera
+        robot_rgb_camera = Camera(
+            prim_path=FRONT_RGB_CAMERA_PRIM,
+            name=f"{robot_type}_rgb_camera",
+            resolution=(640, 480),
+        )
+        robot_rgb_camera.initialize()
+
+        robot_front_camera = usd_stage.GetPrimAtPath(FRONT_RGB_CAMERA_PRIM)
+        if robot_front_camera and robot_front_camera.IsValid():
+            from pxr import Gf, UsdGeom
+
+            xformable = UsdGeom.Xformable(robot_front_camera)
+            xformable.ClearXformOpOrder()
+            xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
+            xformable.AddRotateXYZOp().Set(
+                Gf.Vec3f(0.0, 25.0, 0.0)
+            )  # Counteract camera_link's -25° tilt
+            logger.info(
+                f"[Sensors] Set {robot_type}_rgb_camera to face forward (counteracting camera_link tilt)"
             )
-            go2_rgb_camera.initialize()
 
-            go2_rgb_cam_prim = usd_stage.GetPrimAtPath(GO2_RGB_CAMERA_PRIM)
-            if go2_rgb_cam_prim and go2_rgb_cam_prim.IsValid():
-                from pxr import Gf, UsdGeom
+        robot_rgb_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
+        sensors["robot_front_rgb_camera"] = robot_rgb_camera
+        logger.info(f"[Sensors] {robot_type.upper()} front RGB camera initialized")
 
-                xformable = UsdGeom.Xformable(go2_rgb_cam_prim)
-                xformable.ClearXformOpOrder()
-                xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
-                xformable.AddRotateXYZOp().Set(
-                    Gf.Vec3f(0.0, 25.0, 0.0)
-                )  # Counteract camera_link's -25° tilt
-                logger.info(
-                    "[Sensors] Set go2_rgb_camera to face forward (counteracting camera_link tilt)"
-                )
+        # Add top RGB camera
+        robot_top_camera = Camera(
+            prim_path=TOP_RGB_CAMERA_PRIM,
+            name=f"{robot_type}_top_rgb_camera",
+            resolution=(640, 480),
+        )
+        robot_top_camera.initialize()
 
-            go2_rgb_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
-            sensors["go2_rgb_camera"] = go2_rgb_camera
-            logger.info("[Sensors] Go2 RGB camera initialized")
+        robot_top_cam_prim = usd_stage.GetPrimAtPath(TOP_RGB_CAMERA_PRIM)
+        if robot_top_cam_prim and robot_top_cam_prim.IsValid():
+            from pxr import Gf, UsdGeom
+
+            xformable = UsdGeom.Xformable(robot_top_cam_prim)
+            xformable.ClearXformOpOrder()
+            xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
+            xformable.AddRotateXYZOp().Set(Gf.Vec3f(0.0, 55.0, 0.0))
+            logger.info(
+                f"[Sensors] Set {robot_type}_top_rgb_camera at 30° from horizontal"
+            )
+
+        robot_top_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
+        sensors["robot_top_rgb_camera"] = robot_top_camera
+        logger.info(
+            f"[Sensors] {robot_type.upper()} top RGB camera (fisheye) initialized"
+        )
     except Exception as e:
         logger.info(f"[WARN] Camera setup failed: {e}")
         import traceback
@@ -832,7 +859,9 @@ def update_odom(pos, quat_xyzw, lin_vel, ang_vel) -> None:
         odom_ang_vel_attr.set([float(ang_vel[0]), float(ang_vel[1]), float(ang_vel[2])])
 
 
-def setup_color_camera_publishers(sensors, simulation_app) -> None:
+def setup_color_camera_publishers(
+    sensors, simulation_app, robot_type: str = "go2"
+) -> None:
     """Set up ROS2 publishers for color camera images."""
     import omni.replicator.core as rep
     import omni.syntheticdata as syn_data
@@ -862,9 +891,9 @@ def setup_color_camera_publishers(sensors, simulation_app) -> None:
             except Exception as e:
                 logger.info(f"[WARN] Color camera publisher setup failed: {e}")
 
-    # Go2 RGB Camera
-    if sensors.get("go2_rgb_camera"):
-        cam = sensors["go2_rgb_camera"]
+    # Robot RGB Camera
+    if sensors.get("robot_front_rgb_camera"):
+        cam = sensors["robot_front_rgb_camera"]
         rp = cam.get_render_product_path()
         if rp:
             try:
@@ -872,17 +901,47 @@ def setup_color_camera_publishers(sensors, simulation_app) -> None:
                     sd.SensorType.Rgb.name
                 )
                 w = rep.writers.get(rv + "ROS2PublishImage")
+                topic_name = f"camera/{robot_type}/image_raw"
                 w.initialize(
-                    frameId="go2_rgb_camera",
+                    frameId=f"{robot_type}_rgb_camera",
                     nodeNamespace="",
                     queueSize=10,
-                    topicName="camera/go2/image_raw",
+                    topicName=topic_name,
                 )
                 w.attach([rp])
-                logger.info("[ROS2] Go2 RGB camera -> camera/go2/image_raw")
+                logger.info(f"[ROS2] {robot_type.upper()} RGB camera -> {topic_name}")
 
             except Exception as e:
-                logger.info(f"[WARN] Go2 RGB camera publisher setup failed: {e}")
+                logger.info(
+                    f"[WARN] {robot_type.upper()} RGB camera publisher setup failed: {e}"
+                )
+
+    # Robot Top RGB Camera
+    if sensors.get("robot_top_rgb_camera"):
+        cam = sensors["robot_top_rgb_camera"]
+        rp = cam.get_render_product_path()
+        if rp:
+            try:
+                rv = syn_data.SyntheticData.convert_sensor_type_to_rendervar(
+                    sd.SensorType.Rgb.name
+                )
+                w = rep.writers.get(rv + "ROS2PublishImage")
+                topic_name = "camera/top/image_raw"
+                w.initialize(
+                    frameId=f"{robot_type}_top_rgb_camera",
+                    nodeNamespace="",
+                    queueSize=10,
+                    topicName=topic_name,
+                )
+                w.attach([rp])
+                logger.info(
+                    f"[ROS2] {robot_type.upper()} top RGB camera -> {topic_name}"
+                )
+
+            except Exception as e:
+                logger.info(
+                    f"[WARN] {robot_type.upper()} top RGB camera publisher setup failed: {e}"
+                )
 
 
 def setup_color_camerainfo_graph(
