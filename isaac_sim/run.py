@@ -256,7 +256,10 @@ def _configure_ros_utils_paths(robot_root: str, robot_type: str = ROBOT_GO2) -> 
         ros_utils.REALSENSE_RGB_CAMERA_PRIM = (
             f"{ros_utils.CAMERA_LINK_PRIM}/realsense_rgb_camera"
         )
-        ros_utils.GO2_RGB_CAMERA_PRIM = f"{ros_utils.CAMERA_LINK_PRIM}/go2_rgb_camera"
+        ros_utils.FRONT_RGB_CAMERA_PRIM = (
+            f"{ros_utils.CAMERA_LINK_PRIM}/front_rgb_camera"
+        )
+        ros_utils.TOP_RGB_CAMERA_PRIM = f"{ros_utils.CAMERA_LINK_PRIM}/top_rgb_camera"
         ros_utils.L1_LINK_PRIM = f"{base_link}/lidar_l1_link"
         ros_utils.L1_LIDAR_PRIM = f"{ros_utils.L1_LINK_PRIM}/lidar_l1_rtx"
         ros_utils.VELO_BASE_LINK_PRIM = f"{base_link}/velodyne_base_link"
@@ -276,7 +279,10 @@ def _configure_ros_utils_paths(robot_root: str, robot_type: str = ROBOT_GO2) -> 
         ros_utils.REALSENSE_RGB_CAMERA_PRIM = (
             f"{ros_utils.CAMERA_LINK_PRIM}/realsense_rgb_camera"
         )
-        ros_utils.GO2_RGB_CAMERA_PRIM = f"{ros_utils.CAMERA_LINK_PRIM}/go2_rgb_camera"
+        ros_utils.FRONT_RGB_CAMERA_PRIM = (
+            f"{ros_utils.CAMERA_LINK_PRIM}/front_rgb_camera"
+        )
+        ros_utils.TOP_RGB_CAMERA_PRIM = f"{ros_utils.CAMERA_LINK_PRIM}/top_rgb_camera"
         ros_utils.L1_LINK_PRIM = f"{base_link}/lidar_l1_link"
         ros_utils.L1_LIDAR_PRIM = f"{ros_utils.L1_LINK_PRIM}/lidar_l1_rtx"
         ros_utils.VELO_BASE_LINK_PRIM = f"{base_link}/velodyne_base_link"
@@ -293,7 +299,10 @@ def _configure_ros_utils_paths(robot_root: str, robot_type: str = ROBOT_GO2) -> 
         ros_utils.REALSENSE_RGB_CAMERA_PRIM = (
             f"{ros_utils.CAMERA_LINK_PRIM}/realsense_rgb_camera"
         )
-        ros_utils.GO2_RGB_CAMERA_PRIM = f"{ros_utils.CAMERA_LINK_PRIM}/go2_rgb_camera"
+        ros_utils.FRONT_RGB_CAMERA_PRIM = (
+            f"{ros_utils.CAMERA_LINK_PRIM}/front_rgb_camera"
+        )
+        ros_utils.TOP_RGB_CAMERA_PRIM = f"{ros_utils.CAMERA_LINK_PRIM}/top_rgb_camera"
         ros_utils.L1_LINK_PRIM = f"{robot_root}/base/lidar_l1_link"
         ros_utils.L1_LIDAR_PRIM = f"{ros_utils.L1_LINK_PRIM}/lidar_l1_rtx"
         ros_utils.VELO_BASE_LINK_PRIM = f"{robot_root}/base/velodyne_base_link"
@@ -1393,7 +1402,9 @@ class RobotRosRunner(object):
         )
 
         ros_utils.setup_odom_publisher(simulation_app)
-        ros_utils.setup_color_camera_publishers(self._sensors, simulation_app)
+        ros_utils.setup_color_camera_publishers(
+            self._sensors, simulation_app, self._robot_type
+        )
         ros_utils.setup_color_camerainfo_graph(
             simulation_app,
             topic="/camera/realsense2_camera_node/color/camera_info",
@@ -1584,7 +1595,7 @@ def main():
     )
     parser.add_argument("--real_time", action="store_true", default=False)
     parser.add_argument("--physics_dt", type=float, default=1 / 200.0)
-    parser.add_argument("--render_dt", type=float, default=1 / 60.0)
+    parser.add_argument("--render_dt", type=float, default=1 / 10.0)
     # Human pedestrian arguments
     parser.add_argument(
         "--human", action="store_true", help="Enable human pedestrian model"
