@@ -1135,7 +1135,7 @@ class RobotRosRunner(object):
             elif robot_type == ROBOT_G1:
                 robot_height = G1_INIT_HEIGHT
             else:
-                robot_height = 0.45
+                robot_height = 0.55
             init_pos[2] = APARTMENT_GROUND_Z + robot_height
 
         self._world = World(
