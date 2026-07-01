@@ -23,7 +23,8 @@ def generate_launch_description():
     )
 
     lowstate_node = Node(
-        package="go2_gazebo_sim",
+        package="go2_sim", #        package="go2_gazebo_sim",
+
         executable="go2_lowstate_node",
         name="go2_lowstate_node",
         output="screen",

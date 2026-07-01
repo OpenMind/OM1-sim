@@ -55,6 +55,12 @@ def generate_launch_description():
       2. Sensor + bridge nodes: go2_sdk/sensor_launch.py use_sim:=true
          (which brings up go2_lowstate_node from go2_gazebo_sim)
 
+    The sensor nodes require the sibling OM1-ros2-sdk workspace (it provides
+    the go2_sdk package). This is auto-detected at a directory named
+    "OM1-ros2-sdk" next to this workspace, or via the OM1_ROS2_SDK_WS env
+    var; its install/setup.bash is sourced automatically before launching
+    sensor nodes, so you don't need to source it yourself.
+
     Usage:
       ros2 launch isaac_sim isaac_sim_launch.py
       ros2 launch isaac_sim isaac_sim_launch.py robot_type:=g1
@@ -62,7 +68,7 @@ def generate_launch_description():
     """
     # --- Paths ----------------------------------------------------------------
 
-    # Resolve OM1-ros2-sdk workspace root.
+    # Resolve OM1-sim workspace root (this repo).
     _this_dir = os.path.dirname(os.path.abspath(__file__))
     workspace_root = _this_dir
     for _ in range(8):
@@ -70,9 +76,29 @@ def generate_launch_description():
         if os.path.isdir(os.path.join(workspace_root, "cyclonedds")):
             break
 
-    isaac_sim_src = os.path.join(workspace_root, "unitree", "isaac_sim")
+    isaac_sim_src = os.path.join(workspace_root, "isaac_sim") # "unitree" removed
     cyclonedds_xml = os.path.join(workspace_root, "cyclonedds", "cyclonedds.xml")
-    ros2_sdk_setup = os.path.join(workspace_root, "install", "setup.bash")
+    om1_sim_setup = os.path.join(workspace_root, "install", "setup.bash")
+
+    # Resolve the sibling OM1-ros2-sdk workspace, which provides go2_sdk and
+    # the sensor/path nodes it depends on (go2_gazebo_sim, om_path, etc.).
+    # Honor OM1_ROS2_SDK_WS if set, else look for a directory named
+    # "OM1-ros2-sdk" next to this workspace.
+    _ros2_sdk_candidates = [
+        os.environ.get("OM1_ROS2_SDK_WS", ""),
+        os.path.join(os.path.dirname(workspace_root), "OM1-ros2-sdk"),
+    ]
+    _ros2_sdk_ws = next(
+        (
+            p
+            for p in _ros2_sdk_candidates
+            if p and os.path.isfile(os.path.join(p, "install", "setup.bash"))
+        ),
+        "",
+    )
+    ros2_sdk_setup = (
+        os.path.join(_ros2_sdk_ws, "install", "setup.bash") if _ros2_sdk_ws else ""
+    )
 
     # Venv location: prefer ISAAC_SIM_VENV env var, then ~/env_isaacsim, then
     # <isaac_sim_src>/env_isaacsim.
@@ -90,11 +116,23 @@ def generate_launch_description():
     robot_type = LaunchConfiguration("robot_type")
     isaac_sim_venv = LaunchConfiguration("isaac_sim_venv")
     launch_sensors = LaunchConfiguration("launch_sensors")
+    human = LaunchConfiguration("human")
+    human_auto_walk = LaunchConfiguration("human_auto_walk")
 
     declare_robot_type = DeclareLaunchArgument(
         "robot_type",
         default_value="go2",
         description="Robot type: go2, g1, or tron1",
+    )
+    declare_human = DeclareLaunchArgument(
+        "human",
+        default_value="false",
+        description="Spawn a human pedestrian model (true/false)",
+    )
+    declare_human_auto_walk = DeclareLaunchArgument(
+        "human_auto_walk",
+        default_value="false",
+        description="Human walks autonomously in a patrol pattern (true/false)",
     )
     declare_policy_dir = DeclareLaunchArgument(
         "policy_dir",
@@ -108,7 +146,7 @@ def generate_launch_description():
     )
     declare_launch_sensors = DeclareLaunchArgument(
         "launch_sensors",
-        default_value="true" if os.path.isfile(ros2_sdk_setup) else "false",
+        default_value="true" if ros2_sdk_setup else "false",
         description="Launch sensor nodes from go2_sdk (om_path, obstacle detector, etc.)",
     )
     declare_cyclonedds_iface = DeclareLaunchArgument(
@@ -157,6 +195,12 @@ def generate_launch_description():
             isaac_sim_src,
             " && python3 run.py --robot_type ",
             robot_type,
+            " $([ '",
+            human,
+            "' = 'true' ] && echo '--human' || echo '')",
+            " $([ '",
+            human_auto_walk,
+            "' = 'true' ] && echo '--human_auto_walk' || echo '')",
         ],
     ]
 
@@ -169,7 +213,7 @@ def generate_launch_description():
 
     # --- 2. Sensor Nodes (from go2_sdk, delayed to let Isaac Sim start) -------
     sensor_entities = []
-    if os.path.isfile(ros2_sdk_setup):
+    if ros2_sdk_setup:
         sensor_launch_cmd = [
             FindExecutable(name="bash"),
             "-c",
@@ -177,6 +221,8 @@ def generate_launch_description():
                 "export PATH=/usr/bin:$PATH && "
                 "source /opt/ros/humble/setup.bash && source ",
                 ros2_sdk_setup,
+                " && source ",
+                om1_sim_setup,
                 " && export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp"
                 " && export CYCLONEDDS_INTERFACE=",
                 cyclonedds_iface,
@@ -205,6 +251,8 @@ def generate_launch_description():
     return LaunchDescription(
         [
             declare_robot_type,
+            declare_human,
+            declare_human_auto_walk,
             declare_policy_dir,
             declare_venv,
             declare_launch_sensors,

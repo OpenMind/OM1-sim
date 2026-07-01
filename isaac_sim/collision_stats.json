@@ -1,0 +1,189 @@
+{
+  "total_collisions": 15,
+  "collision_radius_m": 0.8,
+  "robot_type": "go2",
+  "simulation_start": "2026-07-01T19:23:25Z",
+  "events": [
+    {
+      "timestamp": "2026-07-01T19:23:29Z",
+      "robot_pos": [
+        -0.025,
+        0.006
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.025
+    },
+    {
+      "timestamp": "2026-07-01T19:23:30Z",
+      "robot_pos": [
+        -0.169,
+        -0.008
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.169
+    },
+    {
+      "timestamp": "2026-07-01T19:23:31Z",
+      "robot_pos": [
+        -0.26,
+        -0.006
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.261
+    },
+    {
+      "timestamp": "2026-07-01T19:23:32Z",
+      "robot_pos": [
+        -0.269,
+        -0.007
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.269
+    },
+    {
+      "timestamp": "2026-07-01T19:23:34Z",
+      "robot_pos": [
+        -0.262,
+        -0.007
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.262
+    },
+    {
+      "timestamp": "2026-07-01T19:23:35Z",
+      "robot_pos": [
+        -0.266,
+        -0.006
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.267
+    },
+    {
+      "timestamp": "2026-07-01T19:23:36Z",
+      "robot_pos": [
+        -0.263,
+        -0.007
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.263
+    },
+    {
+      "timestamp": "2026-07-01T19:23:38Z",
+      "robot_pos": [
+        -0.266,
+        -0.006
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.266
+    },
+    {
+      "timestamp": "2026-07-01T19:23:39Z",
+      "robot_pos": [
+        -0.265,
+        -0.007
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.265
+    },
+    {
+      "timestamp": "2026-07-01T19:23:40Z",
+      "robot_pos": [
+        -0.264,
+        -0.007
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.265
+    },
+    {
+      "timestamp": "2026-07-01T19:23:41Z",
+      "robot_pos": [
+        -0.265,
+        -0.006
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.265
+    },
+    {
+      "timestamp": "2026-07-01T19:23:42Z",
+      "robot_pos": [
+        -0.265,
+        -0.007
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.265
+    },
+    {
+      "timestamp": "2026-07-01T19:23:43Z",
+      "robot_pos": [
+        -0.265,
+        -0.007
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.265
+    },
+    {
+      "timestamp": "2026-07-01T19:23:44Z",
+      "robot_pos": [
+        -0.265,
+        -0.006
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.265
+    },
+    {
+      "timestamp": "2026-07-01T19:23:45Z",
+      "robot_pos": [
+        -0.381,
+        -0.015
+      ],
+      "character_pos": [
+        0.0,
+        0.0
+      ],
+      "distance_m": 0.382
+    }
+  ],
+  "simulation_end": "2026-07-01T19:23:54Z"
+}
