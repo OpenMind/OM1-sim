@@ -24,6 +24,31 @@ props:
       - [-3.7, -4.1, 0.85]
       - [2.5, -6.0, 0.2]
 
+  # Fill the racks' lowest (floor) level so the ground lidar detects them.
+  - name: BottomShelfBox
+    usd_isaac_relative: /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01.usd
+    positions:
+      - [-9.32, -3.30, 0.20]
+      - [-9.32, -2.50, 0.20]
+      - [-9.32, -1.70, 0.20]
+      - [-9.32, -0.90, 0.20]
+      - [-9.32, -0.10, 0.20]
+      - [-9.32, 0.70, 0.20]
+      - [-9.32, 1.50, 0.20]
+      - [-9.32, 2.30, 0.20]
+      - [-9.32, 3.10, 0.20]
+      - [-9.32, 3.90, 0.20]
+      - [-9.32, 4.70, 0.20]
+      - [-9.32, 5.50, 0.20]
+      - [-9.32, 6.30, 0.20]
+      - [-9.32, 7.10, 0.20]
+      - [-9.32, 7.90, 0.20]
+      - [-9.32, 8.70, 0.20]
+      - [-9.32, 9.50, 0.20]
+      - [-9.32, 10.30, 0.20]
+      - [-9.32, 11.10, 0.20]
+      - [-9.32, 11.90, 0.20]
+
 agents:
   - name: Forklift1
     usd_isaac_relative: /Isaac/Props/Forklift/forklift.usd
