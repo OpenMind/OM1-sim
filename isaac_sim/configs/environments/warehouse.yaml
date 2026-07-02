@@ -1,0 +1,137 @@
+# Full pre-dressed warehouse (racks, boxes, pallets, structure). The robot
+# spawns at the origin in the open southern floor, where the props and movers
+# below live. Movers follow fixed routes and don't avoid props, so positions
+# are kept collision-free by zone: clutter SW, tables W, people centre,
+# forklift ring outer.
+type: warehouse
+stage_path: /World/Warehouse
+
+usd_isaac_relative: /Isaac/Environments/Simple_Warehouse/full_warehouse.usd
+
+props:
+  - name: PackingTable
+    usd_isaac_relative: /Isaac/Props/PackingTable/packing_table.usd
+    positions:
+      - [-9.0, -3.0, -0.2]
+      - [-12.0, -3.0, -0.2]
+      - [-9.0, -7.0, -0.2]
+      - [-12.0, -7.0, -0.2]
+
+  # Pushable boxes resting on tabletops.
+  - name: CardBox
+    usd_isaac_relative: /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01.usd
+    dynamic: true
+    mass: 0.5
+    positions:
+      - [-9.3, -3.0, 0.85]
+      - [-8.7, -3.1, 0.85]
+      - [-9.0, -7.0, 0.85]
+
+  # Graspable YCB objects on a tabletop.
+  - name: CrackerBox
+    usd_isaac_relative: /Isaac/Props/YCB/Axis_Aligned_Physics/003_cracker_box.usd
+    dynamic: true
+    positions: [[-12.3, -2.8, 0.80]]
+  - name: SugarBox
+    usd_isaac_relative: /Isaac/Props/YCB/Axis_Aligned_Physics/004_sugar_box.usd
+    dynamic: true
+    positions: [[-11.7, -3.2, 0.80]]
+  - name: SoupCan
+    usd_isaac_relative: /Isaac/Props/YCB/Axis_Aligned_Physics/005_tomato_soup_can.usd
+    dynamic: true
+    positions: [[-12.0, -2.7, 0.80]]
+  - name: MustardBottle
+    usd_isaac_relative: /Isaac/Props/YCB/Axis_Aligned_Physics/006_mustard_bottle.usd
+    dynamic: true
+    positions: [[-11.6, -3.3, 0.80]]
+
+  # Static floor clutter (south-west).
+  - name: Pallet
+    usd_isaac_relative: /Isaac/Props/Pallet/pallet.usd
+    positions:
+      - [-15.0, -11.0, 0.0]
+      - [-14.0, -11.0, 0.0]
+      - [-16.0, -14.0, 0.0]
+  - name: KLTBin
+    usd_isaac_relative: /Isaac/Props/KLT_Bin/small_KLT_visual_collision.usd
+    positions:
+      - [-15.0, -11.0, 0.15]
+      - [-14.0, -11.0, 0.15]
+  - name: Cabinet
+    usd_isaac_relative: /Isaac/Props/Sektion_Cabinet/sektion_cabinet_instanceable.usd
+    positions: [[-17.0, -7.0, 0.0]]
+  - name: Conveyor
+    usd_isaac_relative: /Isaac/Props/Conveyors/ConveyorBelt_A01.usd
+    positions: [[-18.0, -4.0, 0.0]]
+  - name: Barrel
+    usd_isaac_relative: /Isaac/Environments/Simple_Warehouse/Props/SM_BarelPlastic_A_01.usd
+    positions:
+      - [-13.0, -13.0, 0.0]
+      - [-13.4, -12.4, 0.0]
+      - [-16.0, -2.0, 0.0]
+
+agents:
+  - name: Forklift1
+    usd_isaac_relative: /Isaac/Props/Forklift/forklift.usd
+    yaw_offset_deg: 90.0
+    speed: 1.4
+    turn_rate: 0.8
+    pause: 2.0
+    loop: true
+    waypoints: [[3.0, 6.0], [3.0, -18.0], [-22.0, -18.0], [-22.0, 6.0]]
+
+  - name: Forklift2
+    usd_isaac_relative: /Isaac/Props/Forklift/forklift.usd
+    yaw_offset_deg: 90.0
+    speed: 1.1
+    turn_rate: 0.8
+    pause: 1.0
+    loop: true
+    waypoints: [[0.0, -15.0], [-8.0, -15.0], [-8.0, -12.0], [0.0, -12.0]]
+
+  - name: Dolly1
+    usd_isaac_relative: /Isaac/Props/Dolly/dolly.usd
+    speed: 0.7
+    turn_rate: 1.2
+    pause: 1.5
+    loop: false
+    waypoints: [[-7.0, 3.0], [-7.0, -9.0]]
+
+people:
+  loop: inf
+  dynamic_avoidance_enabled: true
+  navmesh_enabled: false
+  collider:
+    enabled: true
+    radius: 0.3
+    height: 1.8
+  characters:
+    - name: Worker1
+      usd_isaac_relative: /Isaac/People/Characters/male_adult_construction_01_new/male_adult_construction_01_new.usd
+      position: [-1.0, 3.0, 0.0]
+      yaw_deg: -90.0
+      commands:
+        - GoTo -1.0 -9.0 0 _
+        - Idle 2
+        - GoTo -1.0 3.0 0 _
+        - Idle 2
+
+    # Loops near the robot spawn (close-interaction case).
+    - name: Worker2
+      usd_isaac_relative: /Isaac/People/Characters/F_Business_02/F_Business_02.usd
+      position: [1.5, 3.0, 0.0]
+      commands:
+        - GoTo 1.5 -4.0 0 _
+        - GoTo -4.0 -4.0 0 _
+        - Idle 3
+        - GoTo -4.0 3.0 0 _
+        - GoTo 1.5 3.0 0 _
+
+    - name: Worker3
+      usd_isaac_relative: /Isaac/People/Characters/male_adult_construction_05_new/male_adult_construction_05_new.usd
+      position: [-5.5, 3.0, 0.0]
+      commands:
+        - GoTo -5.5 -9.0 0 _
+        - Idle 2
+        - GoTo -5.5 3.0 0 _
+        - Idle 2

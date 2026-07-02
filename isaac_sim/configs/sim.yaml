@@ -1,0 +1,30 @@
+# Simulation-wide defaults (not robot- or scene-specific).
+# CLI flags (--physics_dt, --render_dt, --vx_max, ...) override these.
+
+cmd_vel_timeout: 0.5   # seconds; stop the robot if no new /cmd_vel arrives
+physics_dt: 0.005      # 1/200 s
+render_dt: 0.1         # 1/10 s
+
+# Default per-axis velocity caps (m/s, m/s, rad/s); intersected with the policy
+# command ranges at runtime.
+max_cmd_vel:
+  vx: 1.0
+  vy: 1.0
+  wz: 1.0
+
+# RealSense CameraInfo intrinsics published on the depth/color topics.
+camera:
+  depth:
+    width: 480
+    height: 270
+    fx: 242.479
+    fy: 242.479
+    cx: 242.736
+    cy: 133.273
+  color:
+    width: 424
+    height: 240
+    fx: 214.157
+    fy: 215.537
+    cx: 214.384
+    cy: 118.465

@@ -1,23 +1,12 @@
 # ruff: noqa: E402
 
-import glob
 import logging
 import math
-import os
-import re
 from typing import Optional, Tuple
 
 import numpy as np
-import torch
 
 logger = logging.getLogger(__name__)
-
-# Constants
-WAREHOUSE_STAGE_PATH = "/World/Warehouse"
-WAREHOUSE_USD_PATH = "/Isaac/Environments/Simple_Warehouse/warehouse_with_forklifts.usd"
-
-# Human model stage path
-HUMAN_STAGE_PATH = "/World/Human"
 
 # Go2 Robot prim path
 GO2_STAGE_PATH = "/World/envs/env_0/Robot"
@@ -46,48 +35,9 @@ odom_lin_vel_attr = None
 odom_ang_vel_attr = None
 
 
-def find_latest_checkpoint(log_root: str) -> str:
-    """Find the latest checkpoint file in the log directory."""
-    log_root = os.path.abspath(log_root)
-    candidates = glob.glob(os.path.join(log_root, "**", "model_*.pt"), recursive=True)
-    if not candidates:
-        raise RuntimeError(f"No checkpoints found under: {log_root}")
-    best_it, best_path = -1, None
-    for p in candidates:
-        m = re.search(r"model_(\d+)\.pt$", os.path.basename(p))
-        if m and int(m.group(1)) > best_it:
-            best_it, best_path = int(m.group(1)), p
-    if best_path is None:
-        raise RuntimeError(f"No model_<iter>.pt found under: {log_root}")
-    return best_path
-
-
-def set_base_velocity_command(cm, cmd_tensor) -> None:
-    """Set the base velocity command on the command manager."""
-    if hasattr(cm, "set_command"):
-        cm.set_command("base_velocity", cmd_tensor)
-        return
-    if hasattr(cm, "get_command"):
-        cm.get_command("base_velocity")[:] = cmd_tensor
-        return
-    if hasattr(cm, "get_term"):
-        term = cm.get_term("base_velocity")
-        for attr in ("command", "_command", "commands", "_commands"):
-            if hasattr(term, attr):
-                getattr(term, attr)[:] = cmd_tensor
-                return
-    raise AttributeError("Could not set base_velocity")
-
-
 def clamp(x: float, lo: float, hi: float) -> float:
     """Clamp a value between a lower and upper bound."""
     return max(lo, min(hi, x))
-
-
-def yaw_to_quat_xyzw(yaw: float):
-    """Convert yaw angle to quaternion in xyzw format."""
-    half = yaw * 0.5
-    return [0.0, 0.0, math.sin(half), math.cos(half)]
 
 
 def setup_cmd_vel_graph(
@@ -138,283 +88,6 @@ def setup_cmd_vel_graph(
         og.Controller.attribute(twist_node_path + ".outputs:angularVelocity"),
         og.Controller.attribute(counter_node_path + ".outputs:count"),
     )
-
-
-def add_warehouse_environment() -> bool:
-    """Add the warehouse environment."""
-    import carb
-    import omni.usd
-    from isaacsim.core.utils import nucleus, stage
-    from pxr import Gf, UsdGeom
-
-    assets_root_path = nucleus.get_assets_root_path()
-    if assets_root_path is None:
-        carb.log_error("Could not find Isaac Sim assets folder.")
-        return False
-
-    stage.add_reference_to_stage(
-        assets_root_path + WAREHOUSE_USD_PATH, WAREHOUSE_STAGE_PATH
-    )
-    usd_context = omni.usd.get_context()
-    usd_stage = usd_context.get_stage()
-
-    warehouse_prim = usd_stage.GetPrimAtPath(WAREHOUSE_STAGE_PATH)
-    if not warehouse_prim or not warehouse_prim.IsValid():
-        carb.log_error(f"Could not find warehouse prim at {WAREHOUSE_STAGE_PATH}")
-        return False
-
-    warehouse_xform = UsdGeom.Xformable(warehouse_prim)
-    warehouse_xform.ClearXformOpOrder()
-    translate_op = warehouse_xform.AddTranslateOp()
-    translate_op.Set(Gf.Vec3d(0.0, 0.0, -0.01))
-    logger.info("Warehouse environment added successfully")
-    return True
-
-
-def add_human_model(
-    human_usdz_path: str,
-    position=(2.0, 0.0, 0.0),
-    rotation_yaw: float = 0.0,
-    scale: float = 1.0,
-):
-    """Add human model to the scene.
-
-    Args:
-        human_usdz_path: Path to the human USDZ file
-        position: Initial (x, y, z) position in meters
-        rotation_yaw: Initial yaw rotation in radians
-        scale: Scale factor for the human model (default 1.0)
-
-    Returns
-    -------
-        The human prim if successful, None otherwise
-    """
-    import carb
-    import omni.usd
-    from pxr import Gf, Sdf, UsdGeom
-
-    if not os.path.exists(human_usdz_path):
-        carb.log_error(f"Human model not found: {human_usdz_path}")
-        return None
-
-    usd_context = omni.usd.get_context()
-    usd_stage = usd_context.get_stage()
-
-    # Create prim and add reference with explicit path to /object
-    # (the USDZ has no defaultPrim set, so we must specify the prim path)
-    human_prim = usd_stage.DefinePrim(HUMAN_STAGE_PATH, "Xform")
-    human_prim.GetReferences().AddReference(human_usdz_path, Sdf.Path("/object"))
-
-    if not human_prim or not human_prim.IsValid():
-        carb.log_error(f"Failed to load human model at {HUMAN_STAGE_PATH}")
-        return None
-
-    xform = UsdGeom.Xformable(human_prim)
-    xform.ClearXformOpOrder()
-    xform.AddTranslateOp().Set(Gf.Vec3d(position[0], position[1], position[2]))
-    # Rotate 90° around X to convert from Y-up to Z-up, then apply yaw
-    xform.AddRotateXYZOp().Set(Gf.Vec3f(90.0, 0.0, math.degrees(rotation_yaw)))
-    if scale != 1.0:
-        xform.AddScaleOp().Set(Gf.Vec3f(scale, scale, scale))
-
-    logger.info(
-        "Human model added at position %s, yaw=%s°, scale=%s",
-        position,
-        math.degrees(rotation_yaw),
-        scale,
-    )
-    return human_prim
-
-
-def setup_human_cmd_graph(topic_name: str = "/cmd_vel_human") -> Tuple[object, object]:
-    """Setup ROS2 subscriber for human velocity control."""
-    import omni.graph.core as og
-    from isaacsim.core.utils import extensions
-    from isaacsim.core.utils.prims import is_prim_path_valid
-
-    extensions.enable_extension("isaacsim.ros2.bridge")
-
-    graph_path = "/HumanCmdActionGraph"
-    if not is_prim_path_valid(graph_path):
-        og.Controller.edit(
-            {
-                "graph_path": graph_path,
-                "evaluator_name": "execution",
-                "pipeline_stage": og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION,
-            },
-            {
-                og.Controller.Keys.CREATE_NODES: [
-                    ("OnTick", "omni.graph.action.OnTick"),
-                    ("ROS2Context", "isaacsim.ros2.bridge.ROS2Context"),
-                    ("TwistSub", "isaacsim.ros2.bridge.ROS2SubscribeTwist"),
-                ],
-                og.Controller.Keys.CONNECT: [
-                    ("OnTick.outputs:tick", "TwistSub.inputs:execIn"),
-                    ("ROS2Context.outputs:context", "TwistSub.inputs:context"),
-                ],
-                og.Controller.Keys.SET_VALUES: [
-                    ("ROS2Context.inputs:useDomainIDEnvVar", True),
-                    ("TwistSub.inputs:topicName", topic_name),
-                    ("TwistSub.inputs:queueSize", 10),
-                ],
-            },
-        )
-    twist_node_path = graph_path + "/TwistSub"
-    logger.info("Human command subscriber -> %s", topic_name)
-    return (
-        og.Controller.attribute(twist_node_path + ".outputs:linearVelocity"),
-        og.Controller.attribute(twist_node_path + ".outputs:angularVelocity"),
-    )
-
-
-def update_human_pose(human_prim, x: float, y: float, yaw_rad: float) -> None:
-    """Update human model position and rotation.
-
-    Args:
-        human_prim: The USD prim for the human model
-        x: Target X position (meters)
-        y: Target Y position (meters)
-        yaw_rad: Target yaw rotation (radians)
-    """
-    from pxr import Gf, UsdGeom
-
-    if human_prim is None or not human_prim.IsValid():
-        return
-
-    xform = UsdGeom.Xformable(human_prim)
-
-    translate_ops = [
-        op
-        for op in xform.GetOrderedXformOps()
-        if op.GetOpType() == UsdGeom.XformOp.TypeTranslate
-    ]
-    rotate_ops = [
-        op
-        for op in xform.GetOrderedXformOps()
-        if op.GetOpType() == UsdGeom.XformOp.TypeRotateXYZ
-    ]
-
-    if translate_ops:
-        current_pos = translate_ops[0].Get()
-        z = current_pos[2] if current_pos else 0.0
-        translate_ops[0].Set(Gf.Vec3d(x, y, z))
-    else:
-        xform.AddTranslateOp().Set(Gf.Vec3d(x, y, 0.0))
-
-    if rotate_ops:
-        # Preserve the 90° X rotation for Y-up to Z-up conversion, update yaw
-        rotate_ops[0].Set(Gf.Vec3f(90.0, 0.0, math.degrees(yaw_rad)))
-    else:
-        xform.AddRotateXYZOp().Set(Gf.Vec3f(90.0, 0.0, math.degrees(yaw_rad)))
-
-
-def integrate_human_velocity(
-    current_pos,
-    current_yaw: float,
-    vel_x: float,
-    vel_y: float,
-    yaw_rate: float,
-    dt: float,
-):
-    """Integrate human velocity to get new position and orientation.
-
-    Args:
-        current_pos: Current [x, y] position
-        current_yaw: Current yaw angle in radians
-        vel_x: Forward velocity (m/s) in body frame
-        vel_y: Lateral velocity (m/s) in body frame
-        yaw_rate: Yaw rate (rad/s)
-        dt: Time step (seconds)
-
-    Returns
-    -------
-        Tuple of (new_x, new_y, new_yaw)
-    """
-    new_yaw = current_yaw + yaw_rate * dt
-
-    cos_yaw = math.cos(current_yaw)
-    sin_yaw = math.sin(current_yaw)
-
-    world_vx = vel_x * cos_yaw - vel_y * sin_yaw
-    world_vy = vel_x * sin_yaw + vel_y * cos_yaw
-
-    new_x = current_pos[0] + world_vx * dt
-    new_y = current_pos[1] + world_vy * dt
-
-    return (new_x, new_y, new_yaw)
-
-
-def make_ground_invisible() -> None:
-    """Make Isaac Lab's ground plane invisible but keep it for physics."""
-    import omni.usd
-    from pxr import UsdGeom
-
-    usd_context = omni.usd.get_context()
-    usd_stage = usd_context.get_stage()
-
-    for path in ["/World/ground", "/World/ground/GroundPlane", "/World/GroundPlane"]:
-        prim = usd_stage.GetPrimAtPath(path)
-        if prim and prim.IsValid():
-            imageable = UsdGeom.Imageable(prim)
-            if imageable:
-                imageable.MakeInvisible()
-                logger.info("Made %s invisible", path)
-            for child in prim.GetAllChildren():
-                child_imageable = UsdGeom.Imageable(child)
-                if child_imageable:
-                    child_imageable.MakeInvisible()
-
-
-def modify_env_config_for_warehouse(env_cfg, robot_pos, robot_yaw):
-    """Adjust env config to match the warehouse demo setup."""
-    if hasattr(env_cfg, "scene") and hasattr(env_cfg.scene, "robot"):
-        robot_cfg = env_cfg.scene.robot
-        if hasattr(robot_cfg, "init_state"):
-            init_state = robot_cfg.init_state
-            if hasattr(init_state, "pos"):
-                init_state.pos = robot_pos
-                logger.info("Robot init pos: %s", robot_pos)
-            if hasattr(init_state, "rot"):
-                half_yaw = robot_yaw / 2.0
-                init_state.rot = (math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw))
-
-    if hasattr(env_cfg, "curriculum"):
-        if hasattr(env_cfg.curriculum, "terrain_levels"):
-            env_cfg.curriculum.terrain_levels = None
-            logger.info("Disabled terrain_levels curriculum")
-
-    if hasattr(env_cfg, "events") and hasattr(env_cfg.events, "push_robot"):
-        env_cfg.events.push_robot = None
-        logger.info("Disabled push_robot event")
-
-    if hasattr(env_cfg, "episode_length_s"):
-        env_cfg.episode_length_s = 10000.0
-
-    return env_cfg
-
-
-def set_robot_pose(env, pos, yaw) -> bool:
-    """Set the root pose for all envs when supported by the articulation."""
-    device = env.unwrapped.device
-    num_envs = env.unwrapped.num_envs
-    pos_tensor = torch.tensor([pos], device=device, dtype=torch.float32).repeat(
-        num_envs, 1
-    )
-    half_yaw = yaw / 2.0
-    quat = (math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw))
-    quat_tensor = torch.tensor([quat], device=device, dtype=torch.float32).repeat(
-        num_envs, 1
-    )
-
-    unwrapped = env.unwrapped
-    if hasattr(unwrapped, "scene") and hasattr(unwrapped.scene, "articulations"):
-        for name, articulation in unwrapped.scene.articulations.items():
-            if hasattr(articulation, "write_root_pose_to_sim"):
-                pose = torch.cat([pos_tensor, quat_tensor], dim=-1)
-                articulation.write_root_pose_to_sim(pose)
-                logger.info("Set %s pose via write_root_pose_to_sim", name)
-                return True
-    return False
 
 
 def ensure_link_xform(usd_stage, path: str, translation=None, rpy_rad=None):
@@ -691,8 +364,18 @@ def setup_sensors_delayed(
     return sensors
 
 
-def setup_static_tfs(simulation_app) -> None:
-    """Publish static TFs for sensor frames to complete the TF tree."""
+def setup_static_tfs(
+    simulation_app,
+    camera_link_pos=(0.3, 0.0, 0.10),
+    lidar_l1_pos=(0.3, 0.0, 0.08),
+    velodyne_pos=(0.25, 0.0, 0.13),
+) -> None:
+    """Publish static TFs for sensor frames to complete the TF tree.
+
+    Sensor mount positions are passed in (from the robot config) so the TF
+    tree matches each robot's actual sensor placement. The camera quaternion,
+    velodyne laser offset and RGB offset are fixed sensor-internal geometry.
+    """
     import omni.graph.core as og
     from isaacsim.core.utils.prims import is_prim_path_valid
 
@@ -701,29 +384,24 @@ def setup_static_tfs(simulation_app) -> None:
         logger.info("[ROS2] Static TF graph already exists")
         return
 
-    # Define all the static transforms for Go2
+    cam = [float(v) for v in camera_link_pos]
+    l1 = [float(v) for v in lidar_l1_pos]
+    velo = [float(v) for v in velodyne_pos]
+    cam_quat = [0.5, -0.5, -0.5, 0.5]
+    identity = [0.0, 0.0, 0.0, 1.0]
+
     # Format: (parent, child, translation, rotation_xyzw)
     static_transforms = [
-        ("base_link", "base", [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
-        ("base", "lidar_l1_link", [0.3, 0.0, 0.08], [0.0, 0.0, 0.0, 1.0]),
-        ("base", "velodyne_base_link", [0.25, 0.0, 0.13], [0.0, 0.0, 0.0, 1.0]),
-        ("velodyne_base_link", "laser", [0.0, 0.0, 0.0377], [0.0, 0.0, 0.0, 1.0]),
-        ("base", "imu_link", [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
-        ("base", "camera_link", [0.3, 0.0, 0.1], [0.5, -0.5, -0.5, 0.5]),
-        (
-            "camera_link",
-            "realsense_depth_camera",
-            [0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ),
-        ("camera_link", "realsense_rgb_camera", [0.0, 0.05, 0.0], [0.0, 0.0, 0.0, 1.0]),
-        (
-            "base_link",
-            "realsense_depth_camera",
-            [0.3, 0.0, 0.1],
-            [0.5, -0.5, -0.5, 0.5],
-        ),
-        ("map", "odom", [0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]),
+        ("base_link", "base", [0.0, 0.0, 0.0], identity),
+        ("base", "lidar_l1_link", l1, identity),
+        ("base", "velodyne_base_link", velo, identity),
+        ("velodyne_base_link", "laser", [0.0, 0.0, 0.0377], identity),
+        ("base", "imu_link", [0.0, 0.0, 0.0], identity),
+        ("base", "camera_link", cam, cam_quat),
+        ("camera_link", "realsense_depth_camera", [0.0, 0.0, 0.0], identity),
+        ("camera_link", "realsense_rgb_camera", [0.0, 0.05, 0.0], identity),
+        ("base_link", "realsense_depth_camera", cam, cam_quat),
+        ("map", "odom", [0.0, 0.0, 0.0], identity),
     ]
 
     create_nodes = [
@@ -1015,7 +693,9 @@ def setup_color_camerainfo_graph(
     return True
 
 
-def setup_joint_states_publisher(simulation_app, robot_type: str = "go2") -> None:
+def setup_joint_states_publisher(
+    simulation_app, articulation_link: str = "base"
+) -> None:
     """Publish sensor_msgs/JointState on /joint_states topic."""
     import omni.graph.core as og
     from isaacsim.core.nodes.scripts.utils import set_target_prims
@@ -1026,12 +706,7 @@ def setup_joint_states_publisher(simulation_app, robot_type: str = "go2") -> Non
         logger.info("[ROS2] Joint states graph already exists")
         return
 
-    if robot_type == "g1":
-        ROBOT_ARTICULATION_PATH = f"{GO2_STAGE_PATH}/torso_link"
-    elif robot_type == "tron1":
-        ROBOT_ARTICULATION_PATH = f"{GO2_STAGE_PATH}/base_Link"
-    else:
-        ROBOT_ARTICULATION_PATH = f"{GO2_STAGE_PATH}/base"
+    ROBOT_ARTICULATION_PATH = f"{GO2_STAGE_PATH}/{articulation_link}"
 
     og.Controller.edit(
         {
@@ -1192,8 +867,13 @@ def setup_ros_publishers(
 
                 traceback.print_exc()
 
-    # Setup static TFs for sensor frames
-    setup_static_tfs(simulation_app)
+    # Setup static TFs for sensor frames (mount positions from the robot config)
+    setup_static_tfs(
+        simulation_app,
+        camera_link_pos=camera_link_pos or (0.3, 0.0, 0.10),
+        lidar_l1_pos=lidar_l1_pos or (0.3, 0.0, 0.08),
+        velodyne_pos=lidar_velo_pos or (0.25, 0.0, 0.13),
+    )
 
     # Odom TF publisher (dynamic - updated each frame)
     global odom_tf_trans_attr, odom_tf_rot_attr
@@ -1325,61 +1005,3 @@ def update_odom_tf(pos, quat_xyzw) -> None:
                 float(quat_xyzw[3]),
             ]
         )
-
-
-def find_robot_articulation_path():
-    """Find the actual robot articulation path in the stage."""
-    import omni.usd
-    from pxr import UsdPhysics
-
-    usd_context = omni.usd.get_context()
-    usd_stage = usd_context.get_stage()
-
-    logger.debug("Searching for articulation roots in stage...")
-
-    # Find all ArticulationRootAPI prims
-    articulations = []
-    for prim in usd_stage.Traverse():
-        if prim.HasAPI(UsdPhysics.ArticulationRootAPI):
-            articulations.append(prim.GetPath().pathString)
-            logger.debug("  [ArticulationRoot] %s", prim.GetPath().pathString)
-
-    # Check for common robot paths
-    common_paths = [
-        "/World/envs/env_0/Robot",
-        "/World/envs/env_0/Robot/base",
-        "/World/Go2",
-        "/World/go2",
-        "/World/robot",
-    ]
-
-    logger.debug("Checking common paths:")
-    for path in common_paths:
-        prim = usd_stage.GetPrimAtPath(path)
-        if prim and prim.IsValid():
-            has_arctic = prim.HasAPI(UsdPhysics.ArticulationRootAPI)
-            logger.debug("  %s: exists=True, has_articulation_api=%s", path, has_arctic)
-        else:
-            logger.debug("  %s: exists=False", path)
-
-    # List children of /World/envs/env_0/Robot if it exists
-    robot_prim = usd_stage.GetPrimAtPath("/World/envs/env_0/Robot")
-    if robot_prim and robot_prim.IsValid():
-        logger.debug("Children of /World/envs/env_0/Robot:")
-        for child in robot_prim.GetChildren():
-            has_arctic = child.HasAPI(UsdPhysics.ArticulationRootAPI)
-            logger.debug(
-                "  %s (articulation=%s)", child.GetPath().pathString, has_arctic
-            )
-
-    # List direct children of /World/envs/env_0
-    env_prim = usd_stage.GetPrimAtPath("/World/envs/env_0")
-    if env_prim and env_prim.IsValid():
-        logger.debug("Children of /World/envs/env_0:")
-        for child in env_prim.GetChildren():
-            has_arctic = child.HasAPI(UsdPhysics.ArticulationRootAPI)
-            logger.debug(
-                "  %s (articulation=%s)", child.GetPath().pathString, has_arctic
-            )
-
-    return articulations

@@ -1,0 +1,30 @@
+# LimX TRON1 WheelFoot (bipedal) — runtime configuration.
+# Paths are relative to the isaac_sim/ directory unless absolute.
+type: tron1
+
+policy_dir: checkpoints/tron1
+prim_root: /World/Tron1
+
+# TRON1 is a two-stage encoder+policy and ships deploy.yaml only.
+requires_encoder: true   # needs exported/encoder.pt
+requires_env_yaml: false  # no params/env.yaml
+
+base_link_name: base_Link
+
+init_height: 0.966
+apartment_height: 0.966
+
+# Observation-history length feeding the encoder (TRON1 uses a 10-step history).
+history_length: 10
+
+# TRON1 has no Isaac Sim bundled fallback; a local/env.yaml USD is required.
+usd_relative: assets/tron1/usd/tron1.usd
+isaac_fallback_usd: null
+
+enable_lidar: true
+
+# TRON1 reuses the low-mounted (Go2-style) sensor layout.
+sensors:
+  camera_link: [0.3, 0.0, 0.10]
+  lidar_l1: [0.3, 0.0, 0.08]
+  velodyne: [0.25, 0.0, 0.13]

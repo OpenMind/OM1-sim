@@ -1,0 +1,26 @@
+# Unitree G1 (humanoid) — runtime configuration.
+# Paths are relative to the isaac_sim/ directory unless absolute.
+type: g1
+
+policy_dir: checkpoints/g1
+prim_root: /World/G1
+
+# G1 mounts its sensors and articulation on torso_link.
+base_link_name: torso_link
+
+init_height: 1.05
+apartment_height: 1.05
+
+# Observation-history length for the policy (G1 uses per-term 5-step history).
+history_length: 5
+
+usd_relative: assets/g1/usd/g1.usd
+isaac_fallback_usd: /Isaac/Robots/Unitree/G1/g1.usd
+
+enable_lidar: true
+
+# Sensors sit higher on the humanoid torso than on the quadruped base.
+sensors:
+  camera_link: [0.0, 0.0, 0.75]
+  lidar_l1: [0.2, 0.0, 0.4]
+  velodyne: [0.15, 0.0, 0.5]

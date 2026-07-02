@@ -1,0 +1,33 @@
+# Unitree Go2 (quadruped) — runtime configuration.
+# Paths are relative to the isaac_sim/ directory unless absolute.
+type: go2
+
+# Policy checkpoint dir (expects exported/policy.pt + params/{env,deploy}.yaml)
+policy_dir: checkpoints/go2
+
+# Default robot prim path in the stage (overridable via --robot_root)
+prim_root: /World/Go2
+
+# Name of the base link under prim_root; used to build sensor prim paths and
+# the /joint_states articulation target.
+base_link_name: base
+
+# Spawn height (z, metres) of the robot base above the ground it stands on.
+# apartment_height is added on top of the apartment ground plane (--environment
+# apartment). Keep it equal to init_height so the spawn drop matches the
+# warehouse case; the legacy 0.45 dropped Go2 too hard and it flipped on landing.
+init_height: 0.4
+apartment_height: 0.4
+
+# Robot USD: try local first, then Isaac Sim's bundled asset.
+usd_relative: assets/go2/usd/go2.usd
+isaac_fallback_usd: /Isaac/Robots/Unitree/Go2/go2.usd
+
+enable_lidar: true
+
+# Sensor mount positions (metres, relative to base) — drive both the simulated
+# sensor placement and the published /tf_static tree.
+sensors:
+  camera_link: [0.3, 0.0, 0.10]
+  lidar_l1: [0.3, 0.0, 0.08]
+  velodyne: [0.25, 0.0, 0.13]
