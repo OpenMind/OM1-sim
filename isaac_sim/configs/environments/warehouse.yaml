@@ -219,7 +219,7 @@ agents:
   - name: Forklift1
     usd_isaac_relative: /Isaac/Props/Forklift/forklift.usd
     yaw_offset_deg: 90.0
-    speed: 1.4
+    speed: 0.6
     turn_rate: 0.8
     pause: 2.0
     loop: true
@@ -228,7 +228,7 @@ agents:
   - name: Forklift2
     usd_isaac_relative: /Isaac/Props/Forklift/forklift.usd
     yaw_offset_deg: 90.0
-    speed: 1.1
+    speed: 0.5
     turn_rate: 0.8
     pause: 1.0
     loop: true
@@ -236,7 +236,7 @@ agents:
 
   - name: Dolly1
     usd_isaac_relative: /Isaac/Props/Dolly/dolly.usd
-    speed: 0.7
+    speed: 0.4
     turn_rate: 1.2
     pause: 1.5
     loop: false
