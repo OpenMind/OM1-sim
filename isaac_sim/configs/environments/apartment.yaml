@@ -1,0 +1,41 @@
+# Modern Apartment scene — bundled USDZ with a matching collision ground + lights.
+type: apartment
+stage_path: /World/Environment
+
+# Apartment USD (relative to isaac_sim/).
+usd_relative: assets/environment/Modern_Apartment.usdz
+
+# Height (z) of the collision ground plane. Robot spawn z becomes
+# ground_z + <robot>.apartment_height.
+ground_z: 0.22073
+
+# Reference-prim placement (the USDZ is authored Y-up, centimetre-scaled).
+transform:
+  translate: [0.0, 0.0, -0.012]
+  rotate_xyz: [90.0, 0.0, 0.0]
+  scale: [0.01, 0.01, 0.01]
+
+# Viewport camera when the apartment loads.
+camera_view:
+  eye: [2.0, -2.0, 1.5]
+  target: [0.0, 0.0, 0.5]
+
+# Lighting rig.
+lighting:
+  dome_intensity: 500.0
+  distant_intensity: 1500.0
+  distant_rotate_xyz: [-45.0, 30.0, 0.0]
+  ceiling:
+    intensity: 30000.0
+    radius: 0.15
+    color: [1.0, 0.95, 0.9]
+    height_above_ground: 2.5
+    positions:
+      - [0.0, 0.0]
+      - [5.0, 0.0]
+      - [-3.0, 0.0]
+      - [0.0, -2.0]
+      - [5.0, -2.0]
+      - [-3.0, -2.0]
+      - [10.0, 0.0]
+      - [10.0, -2.0]

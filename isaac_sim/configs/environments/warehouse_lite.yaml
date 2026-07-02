@@ -1,0 +1,54 @@
+# Lightweight warehouse for fast iteration: the empty Simple_Warehouse shell
+# with a trimmed set of props and movers. Use `--environment warehouse` for the
+# full scene. Coordinates suit the small shell (walls x[-10, 9], y[-12, 18]);
+# robot spawns at (0,0).
+type: warehouse
+stage_path: /World/Warehouse
+
+usd_isaac_relative: /Isaac/Environments/Simple_Warehouse/warehouse.usd
+
+props:
+  - name: PackingTable
+    usd_isaac_relative: /Isaac/Props/PackingTable/packing_table.usd
+    positions:
+      - [-4.0, -4.0, -0.2]
+      - [-4.0, -7.0, -0.2]
+
+  # Two boxes on a tabletop, one on the floor.
+  - name: CardBox
+    usd_isaac_relative: /Isaac/Environments/Simple_Warehouse/Props/SM_CardBoxA_01.usd
+    dynamic: true
+    mass: 0.5
+    positions:
+      - [-4.3, -4.0, 0.85]
+      - [-3.7, -4.1, 0.85]
+      - [2.5, -6.0, 0.2]
+
+agents:
+  - name: Forklift1
+    usd_isaac_relative: /Isaac/Props/Forklift/forklift.usd
+    yaw_offset_deg: 90.0
+    speed: 1.2
+    turn_rate: 0.8
+    pause: 2.0
+    loop: true
+    waypoints: [[7.0, 6.0], [7.0, -10.0], [-7.5, -10.0], [-7.5, 6.0]]
+
+people:
+  loop: inf
+  dynamic_avoidance_enabled: true
+  navmesh_enabled: false
+  collider:
+    enabled: true
+    radius: 0.3
+    height: 1.8
+  characters:
+    - name: Worker1
+      usd_isaac_relative: /Isaac/People/Characters/F_Business_02/F_Business_02.usd
+      position: [2.0, 4.0, 0.0]
+      yaw_deg: -90.0
+      commands:
+        - GoTo 2.0 -4.0 0 _
+        - GoTo -1.0 -4.0 0 _
+        - Idle 3
+        - GoTo -1.0 4.0 0 _
