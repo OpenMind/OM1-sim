@@ -20,6 +20,7 @@ def add_environment(env_cfg) -> None:
         _add_warehouse(env_cfg)
     _add_props(env_cfg)
     _scale_scene_prims(env_cfg)
+    _remove_scene_prims(env_cfg)
 
 
 def _add_props(env_cfg) -> None:
@@ -145,6 +146,68 @@ def _scale_scene_prims(env_cfg) -> None:
         total += matched
 
     logger.info("scale_prims: %d prims scaled total", total)
+
+
+def _remove_scene_prims(env_cfg) -> None:
+    """Remove baked scene prims listed under ``remove_prims`` in the env config."""
+    specs = getattr(env_cfg, "remove_prims", None)
+    if not specs:
+        return
+
+    import omni.usd
+    from pxr import Usd, UsdGeom
+
+    stage = omni.usd.get_context().get_stage()
+    root = stage.GetPrimAtPath(env_cfg.stage_path)
+    if not root or not root.IsValid():
+        logger.warning("remove_prims: stage_path %s not found", env_cfg.stage_path)
+        return
+
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        [UsdGeom.Tokens.default_, UsdGeom.Tokens.render],
+    )
+
+    total = 0
+    for spec in specs:
+        paths = spec.get("paths")
+        if paths:
+            for p in paths:
+                prim = stage.GetPrimAtPath(p)
+                if prim and prim.IsValid():
+                    prim.SetActive(False)
+                    total += 1
+                else:
+                    logger.warning("remove_prims: prim not found: %s", p)
+            continue
+
+        region = spec.get("region")  # [xmin, xmax, ymin, ymax]
+        match = [m.lower() for m in (spec.get("match") or [])]
+        removed = 0
+        for prim in root.GetChildren():  # baked clutter sits at the scene root
+            nm = prim.GetName().lower()
+            if match and not any(m in nm for m in match):
+                continue
+            rng = bbox_cache.ComputeWorldBound(prim).ComputeAlignedRange()
+            if rng.IsEmpty():
+                continue
+            mn, mx = rng.GetMin(), rng.GetMax()
+            cx, cy = (mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2
+            if region and not (
+                region[0] <= cx <= region[1] and region[2] <= cy <= region[3]
+            ):
+                continue
+            prim.SetActive(False)
+            removed += 1
+        logger.info(
+            "remove_prims: removed %d prims in region=%s match=%s",
+            removed,
+            region,
+            match or "*",
+        )
+        total += removed
+
+    logger.info("remove_prims: %d prims removed total", total)
 
 
 def _neutralize_articulation(prim) -> None:
