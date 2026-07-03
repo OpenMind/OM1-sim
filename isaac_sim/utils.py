@@ -290,7 +290,8 @@ def setup_sensors_delayed(
                 "IsaacSensorCreateRtxLidar",
                 path="lidar_l1_rtx",
                 parent=L1_LINK_PRIM,
-                config="Example_Rotary",
+                config="OS0",
+                variant="OS0_REV6_128ch10hz512res",
                 translation=(0.0, 0.0, 0.0),
                 orientation=Gf.Quatd(1, 0, 0, 0),
             )
@@ -305,11 +306,11 @@ def setup_sensors_delayed(
                 pc_writer.initialize(
                     frameId="lidar_l1_link",
                     nodeNamespace="",
-                    topicName="/unitree_lidar",
+                    topicName="/utlidar/cloud_raw",
                     queueSize=10,
                 )
                 pc_writer.attach([l1_rp])
-                logger.info("[Sensors] L1 LiDAR -> /unitree_lidar")
+                logger.info("[Sensors] L1 LiDAR -> /utlidar/cloud_raw (pre-crop)")
             else:
                 logger.info(f"[WARN] L1 LiDAR creation returned: {result}")
         except Exception as e:

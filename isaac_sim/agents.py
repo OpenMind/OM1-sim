@@ -31,8 +31,8 @@ class WaypointAgent:
         self.loop = bool(cfg.get("loop", True))
         self.pause = float(cfg.get("pause", 0.0))
         self.arrive_tol = float(cfg.get("arrive_tol", 0.3))
+        self.stop_distance = float(cfg.get("stop_distance", 2.0))
         self.z = float(cfg.get("z", 0.0))
-        # Yaw correction when the model's front is not +x.
         self.yaw_offset_deg = float(cfg.get("yaw_offset_deg", 0.0))
 
         start = cfg.get("start", self.waypoints[0] if self.waypoints else (0.0, 0.0))
@@ -41,6 +41,7 @@ class WaypointAgent:
         self.idx = 0
         self.direction = 1
         self.wait_left = 0.0
+        self._stopped = False
 
         self._model_rot = tuple(
             float(v) for v in cfg.get("model_rotate_xyz", (0.0, 0.0, 0.0))
@@ -126,10 +127,30 @@ class WaypointAgent:
         self._translate_op.Set(Gf.Vec3d(self.pos[0], self.pos[1], self.z))
         self._rotate_op.Set(Gf.Vec3f(rx, ry, rz + yaw_deg))
 
-    def update(self, dt: float) -> None:
-        """Advance the patrol by dt: pause, turn toward, or drive."""
+    def _should_stop_for_robot(self, robot_xy) -> bool:
+        """
+        True while the robot is near enough to freeze this agent.
+        """
+        if robot_xy is None or self.stop_distance <= 0.0:
+            self._stopped = False
+            return False
+        dx = self.pos[0] - robot_xy[0]
+        dy = self.pos[1] - robot_xy[1]
+        dist_sq = dx * dx + dy * dy
+        threshold = self.stop_distance * (1.2 if self._stopped else 1.0)
+        self._stopped = dist_sq <= threshold * threshold
+        return self._stopped
+
+    def update(self, dt: float, robot_xy=None) -> None:
+        """
+        Advance the patrol by dt: pause, turn toward, or drive.
+        """
         if self._translate_op is None:
             return
+
+        if self._should_stop_for_robot(robot_xy):
+            return
+
         if self.wait_left > 0.0:
             self.wait_left -= dt
             return
@@ -176,6 +197,7 @@ class WaypointAgentRunner:
         self._world = world
         self._agents = [WaypointAgent(cfg) for cfg in agent_cfgs or []]
         self.enabled = False
+        self._robot_pose_fn = None
 
     def setup(self) -> bool:
         """Spawn all agents. Must run before world.reset() (PhysX)."""
@@ -187,14 +209,33 @@ class WaypointAgentRunner:
         self.enabled = bool(spawned)
         return self.enabled
 
-    def register_physics_callback(self) -> None:
-        """Drive the agents each physics step (call after world.reset())."""
+    def register_physics_callback(self, robot_pose_fn=None) -> None:
+        """
+        Drive the agents each physics step (call after world.reset()).
+        """
+        self._robot_pose_fn = robot_pose_fn
         if self.enabled:
             self._world.add_physics_callback(
                 "waypoint_agents_step", callback_fn=self.update
             )
 
+    def _robot_xy(self):
+        """Return the robot base's live world (x, y), or None if unavailable."""
+        if self._robot_pose_fn is None:
+            return None
+
+        try:
+            pos = self._robot_pose_fn()
+        except Exception:
+            return None
+
+        if pos is None:
+            return None
+
+        return (float(pos[0]), float(pos[1]))
+
     def update(self, step_size) -> None:
         """Advance every agent's patrol by one physics step."""
+        robot_xy = self._robot_xy()
         for agent in self._agents:
-            agent.update(step_size)
+            agent.update(step_size, robot_xy)

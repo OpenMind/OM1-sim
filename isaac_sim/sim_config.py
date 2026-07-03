@@ -107,6 +107,7 @@ class EnvironmentConfig:
     agents: Optional[list] = None
     people: Optional[dict] = None
     scale_prims: Optional[list] = None
+    remove_prims: Optional[list] = None
 
     @property
     def usd_local_abs(self) -> Optional[str]:
@@ -164,6 +165,7 @@ def load_environment_config(env_type: str) -> EnvironmentConfig:
         agents=data.get("agents"),
         people=data.get("people"),
         scale_prims=data.get("scale_prims"),
+        remove_prims=data.get("remove_prims"),
     )
 
 
