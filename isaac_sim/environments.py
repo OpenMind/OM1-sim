@@ -19,6 +19,7 @@ def add_environment(env_cfg) -> None:
     else:
         _add_warehouse(env_cfg)
     _add_props(env_cfg)
+    _scale_scene_prims(env_cfg)
 
 
 def _add_props(env_cfg) -> None:
@@ -59,6 +60,91 @@ def _add_props(env_cfg) -> None:
         logger.info(
             "Spawned %d x %s from %s", len(prop.get("positions", [])), name, usd_path
         )
+
+
+def _scale_scene_prims(env_cfg) -> None:
+    """Enlarge baked scene prims listed under ``scale_prims`` in the env config."""
+    specs = getattr(env_cfg, "scale_prims", None)
+    if not specs:
+        return
+
+    import omni.usd
+    from pxr import Gf, Usd, UsdGeom
+
+    stage = omni.usd.get_context().get_stage()
+    root = stage.GetPrimAtPath(env_cfg.stage_path)
+    if not root or not root.IsValid():
+        logger.warning("scale_prims: stage_path %s not found", env_cfg.stage_path)
+        return
+
+    bbox_cache = UsdGeom.BBoxCache(
+        Usd.TimeCode.Default(),
+        [UsdGeom.Tokens.default_, UsdGeom.Tokens.render],
+    )
+
+    def _apply(prim, svec):
+        xf = UsdGeom.Xformable(prim)
+        scale_op = next(
+            (
+                op
+                for op in xf.GetOrderedXformOps()
+                if op.GetOpType() == UsdGeom.XformOp.TypeScale
+            ),
+            None,
+        )
+        if scale_op is not None:
+            cur = scale_op.Get() or Gf.Vec3f(1.0, 1.0, 1.0)
+            scale_op.Set(Gf.Vec3f(cur[0] * svec[0], cur[1] * svec[1], cur[2] * svec[2]))
+        else:
+            xf.AddScaleOp().Set(Gf.Vec3f(*svec))
+
+    total = 0
+    for spec in specs:
+        sc = spec.get("scale", 1.0)
+        svec = (
+            (float(sc),) * 3
+            if isinstance(sc, (int, float))
+            else tuple(float(v) for v in sc)
+        )
+        paths = spec.get("paths")
+        if paths:
+            for p in paths:
+                prim = stage.GetPrimAtPath(p)
+                if prim and prim.IsValid():
+                    _apply(prim, svec)
+                    total += 1
+                else:
+                    logger.warning("scale_prims: prim not found: %s", p)
+            continue
+
+        region = spec.get("region")  # [xmin, xmax, ymin, ymax]
+        match = [m.lower() for m in (spec.get("match") or [])]
+        matched = 0
+        for prim in root.GetChildren():  # baked clutter sits at the scene root
+            nm = prim.GetName().lower()
+            if match and not any(m in nm for m in match):
+                continue
+            rng = bbox_cache.ComputeWorldBound(prim).ComputeAlignedRange()
+            if rng.IsEmpty():
+                continue
+            mn, mx = rng.GetMin(), rng.GetMax()
+            cx, cy = (mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2
+            if region and not (
+                region[0] <= cx <= region[1] and region[2] <= cy <= region[3]
+            ):
+                continue
+            _apply(prim, svec)
+            matched += 1
+        logger.info(
+            "scale_prims: scaled %d prims in region=%s match=%s by %s",
+            matched,
+            region,
+            match or "*",
+            svec,
+        )
+        total += matched
+
+    logger.info("scale_prims: %d prims scaled total", total)
 
 
 def _neutralize_articulation(prim) -> None:
