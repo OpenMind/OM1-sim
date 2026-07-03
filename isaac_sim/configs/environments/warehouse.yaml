@@ -215,6 +215,10 @@ props:
       - [4.41, 23.70, 0.20]
       - [4.41, 24.50, 0.20]
 
+scale_prims:
+  - region: [-4.6, -1.2, 8.5, 15.0]
+    scale: [1.6, 1.6, 3.0]
+
 agents:
   - name: Forklift1
     usd_isaac_relative: /Isaac/Props/Forklift/forklift.usd
