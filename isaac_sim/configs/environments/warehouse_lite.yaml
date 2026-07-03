@@ -63,6 +63,7 @@ people:
   loop: inf
   dynamic_avoidance_enabled: true
   navmesh_enabled: false
+  stop_distance: 1.2
   collider:
     enabled: true
     radius: 0.3

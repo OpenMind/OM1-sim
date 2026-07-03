@@ -739,7 +739,10 @@ def main():
         if human_runner is not None:
             human_runner.register_physics_callback()
         agent_runner.register_physics_callback()
-        people_runner.register_physics_callback(runner._world)
+        people_runner.register_physics_callback(
+            runner._world,
+            robot_pose_fn=lambda: runner._robot.robot.get_world_pose()[0],
+        )
         simulation_app.update()
         runner.setup_ros()
         simulation_app.update()
