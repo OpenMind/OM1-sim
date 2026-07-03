@@ -30,15 +30,23 @@ class AnimatedPeopleRunner:
         self._cfg = cfg or {}
         self._characters = self._cfg.get("characters") or []
         self._skel_root_paths = {}
-        # Followers: name -> (skel_path, translate_op, capsule_center_z).
         self._colliders = {}
         self.enabled = False
 
-    def setup(self) -> bool:
-        """Enable the extension, configure it, and spawn the characters.
+        self._stop_distance = float(self._cfg.get("stop_distance", 1.2))
+        self._robot_pose_fn = None
+        self._frozen = {}
+        self._idled = set()
 
-        Must run before world.reset(); the behavior scripts start with the
-        timeline.
+        self._commands_by_name = {
+            c["name"]: [f"{c['name']} {cmd}" for cmd in (c.get("commands") or [])]
+            for c in self._characters
+            if c.get("name")
+        }
+
+    def setup(self) -> bool:
+        """
+        Enable the extension, configure it, and spawn the characters.
         """
         if not self._characters:
             return False
@@ -67,8 +75,6 @@ class AnimatedPeopleRunner:
             + "/omni/anim/people/scripts/character_behavior.py"
         )
 
-        # Set every setting explicitly; the persistent ones don't reliably
-        # initialize in standalone SimulationApp.
         settings = carb.settings.get_settings()
         settings.set_string(
             "/exts/omni.anim.people/command_settings/command_file_path",
@@ -99,7 +105,6 @@ class AnimatedPeopleRunner:
             behavior_script,
         )
 
-        # Biped_Setup provides the shared AnimationGraph and animation clips.
         biped_prim = create_prim(
             f"{CHARACTERS_ROOT}/{BIPED_SETUP_NAME}",
             "Xform",
@@ -139,8 +144,6 @@ class AnimatedPeopleRunner:
                 usd_path=usd_path,
             )
 
-            # Apply the schemas via USD directly; the ApplyAnimationGraphAPI /
-            # ApplyScriptingAPI kit commands aren't registered in standalone runs.
             import AnimGraphSchema
             import OmniScriptingSchema
 
@@ -179,8 +182,6 @@ class AnimatedPeopleRunner:
 
         radius = float(col.get("radius", DEFAULT_COLLIDER_RADIUS))
         total_height = float(col.get("height", DEFAULT_COLLIDER_HEIGHT))
-        # USD Capsule "height" is the cylinder section only; the caps add radius
-        # on each end. Keep the cylinder non-negative for short/wide configs.
         cyl_height = max(total_height - 2.0 * radius, 0.0)
         center_z = total_height / 2.0
 
@@ -194,7 +195,6 @@ class AnimatedPeopleRunner:
         translate_op = UsdGeom.Xformable(prim).AddTranslateOp()
         translate_op.Set(Gf.Vec3d(float(xy[0]), float(xy[1]), center_z))
 
-        # Kinematic so it is driven by us, not gravity, and gives correct contacts.
         body = UsdPhysics.RigidBodyAPI.Apply(prim)
         body.CreateKinematicEnabledAttr(True)
         UsdPhysics.CollisionAPI.Apply(prim)
@@ -238,26 +238,119 @@ class AnimatedPeopleRunner:
         logger.info("Robot registered as dynamic obstacle for people: %s", prim_path)
         return True
 
-    def register_physics_callback(self, world) -> None:
-        """Make each capsule follow its character every physics step."""
+    def register_physics_callback(self, world, robot_pose_fn=None) -> None:
+        """Make each capsule follow its character every physics step.
+
+        ``robot_pose_fn`` is an optional callable returning the robot base's
+        live world position (x, y, z); it drives the stop-when-near freeze.
+        """
+        self._robot_pose_fn = robot_pose_fn
         if self._colliders:
             world.add_physics_callback(
                 "character_colliders_step", callback_fn=self._update_colliders
             )
+
+    def _robot_xy(self):
+        """Return the robot base's live world (x, y), or None if unavailable."""
+        if self._robot_pose_fn is None or self._stop_distance <= 0.0:
+            return None
+        try:
+            pos = self._robot_pose_fn()
+        except Exception:  # articulation not ready yet, etc.
+            return None
+        if pos is None:
+            return None
+        return (float(pos[0]), float(pos[1]))
 
     def _update_colliders(self, step_size) -> None:
         import carb
         import omni.anim.graph.core as ag
         from pxr import Gf
 
-        for skel_path, translate_op, center_z in self._colliders.values():
+        robot_xy = self._robot_xy()
+
+        for name, (skel_path, translate_op, center_z) in self._colliders.items():
             character = ag.get_character(skel_path)
             if character is None:
                 continue
             pos = carb.Float3(0.0, 0.0, 0.0)
             rot = carb.Float4(0.0, 0.0, 0.0, 1.0)
             character.get_world_transform(pos, rot)
+
+            if robot_xy is not None:
+                pos = self._apply_stop_when_near(name, character, pos, rot, robot_xy)
+
             translate_op.Set(Gf.Vec3d(float(pos.x), float(pos.y), center_z))
+
+    def _apply_stop_when_near(self, name, character, pos, rot, robot_xy):
+        """
+        Freeze ``character`` while the robot is near; return the pose to use.
+        """
+        import carb
+
+        dx = pos.x - robot_xy[0]
+        dy = pos.y - robot_xy[1]
+        dist_sq = dx * dx + dy * dy
+        held = self._frozen.get(name)
+        threshold = self._stop_distance * (1.2 if held is not None else 1.0)
+
+        if dist_sq > threshold * threshold:
+            if held is not None:
+                self._frozen.pop(name, None)
+                if name in self._idled:
+                    self._resume_walking(name)
+                    self._idled.discard(name)
+            return pos
+
+        if held is None:
+            held = (
+                carb.Float3(pos.x, pos.y, pos.z),
+                carb.Float4(rot.x, rot.y, rot.z, rot.w),
+            )
+            self._frozen[name] = held
+
+        character.set_world_transform(held[0], held[1])
+        if name not in self._idled and self._request_idle(name):
+            self._idled.add(name)
+
+        return held[0]
+
+    def _request_idle(self, name) -> bool:
+        """
+        Switch a character to a long Idle command so its legs stop moving.
+        """
+        try:
+            from omni.anim.people.scripts.utils import Utils
+
+            if Utils.fetch_target_character_instance_by_name(name) is None:
+                return False
+            Utils.runtime_inject_command(
+                character_name=name,
+                command_list=[f"{name} Idle 1000000"],
+                force_inject=True,
+                set_status=False,
+            )
+            return True
+        except Exception:
+            logger.exception("Failed to idle character '%s'", name)
+            return False
+
+    def _resume_walking(self, name) -> None:
+        """Restore a character's patrol commands after the robot leaves."""
+        commands = self._commands_by_name.get(name)
+        if not commands:
+            return
+        try:
+            from omni.anim.people.scripts.utils import Utils
+
+            Utils.runtime_inject_command(
+                character_name=name,
+                command_list=commands,
+                force_inject=True,
+                set_status=False,
+            )
+        except Exception:
+            logger.exception("Failed to resume character '%s'", name)
 
     def verify(self, world) -> None:
         """Warn if the anim-graph runtime didn't pick up a character (won't move)."""
