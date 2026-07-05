@@ -1,0 +1,22 @@
+# DeepRobotics M20 deploy parameters.
+#
+# The M20 policy (policies/m20.py) reads joint gains, default positions,
+# decimation and observation scales directly from params/env.yaml, so this file
+# only supplies the velocity-command limits consumed by run.py. Kept here for
+# parity with the other robots and as documentation of the hybrid drive setup.
+step_dt: 0.02  # decimation(4) * sim.dt(0.005)
+
+# Leg joints are position-controlled, wheel joints velocity-controlled.
+default_joint_pos:
+  legs: {hipx: 0.0, front_hipy: -0.6, hind_hipy: 0.6, front_knee: 1.0, hind_knee: -1.0}
+  wheels: 0.0
+stiffness: {legs: 80.0, wheels: 0.0}
+damping: {legs: 2.0, wheels: 0.6}
+
+commands:
+  base_velocity:
+    ranges:
+      lin_vel_x: [-2.0, 2.0]
+      lin_vel_y: [-1.0, 1.0]
+      ang_vel_z: [-1.0, 1.0]
+      heading: null
