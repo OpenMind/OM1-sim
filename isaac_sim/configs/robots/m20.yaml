@@ -1,0 +1,30 @@
+# DeepRobotics M20 (wheeled quadruped) — runtime configuration.
+# Paths are relative to the isaac_sim/ directory unless absolute.
+type: m20
+
+# Policy checkpoint dir (expects exported/policy.pt + params/{env,deploy}.yaml)
+policy_dir: checkpoints/m20
+
+# Default robot prim path in the stage (overridable via --robot_root)
+prim_root: /World/M20
+
+# Base link prim under prim_root; used for sensor prim paths and /joint_states.
+base_link_name: base_link
+
+# Spawn height (z, metres). Training init_state stands the M20 at 0.52 m; a
+# small margin lets it settle without a hard drop.
+init_height: 0.55
+apartment_height: 0.55
+
+# Robot USD: bundled asset only (M20 has no Isaac Sim fallback).
+usd_relative: assets/m20/usd/M20.usd
+isaac_fallback_usd: null
+
+enable_lidar: true
+
+# Sensor mount positions (metres, relative to base_link) — drive both the
+# simulated sensor placement and the published /tf_static tree.
+sensors:
+  camera_link: [0.3, 0.0, 0.12]
+  lidar_l1: [0.3, 0.0, 0.10]
+  velodyne: [0.25, 0.0, 0.15]

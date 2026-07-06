@@ -1,7 +1,8 @@
 # ruff: noqa: E402
 """
 Isaac Sim robot simulation with ROS2 integration.
-Supports Go2 (quadruped), G1 (humanoid), and TRON1 (bipedal wheelfoot) robots.
+Supports Go2 (quadruped), G1 (humanoid), TRON1 (bipedal wheelfoot), and
+M20 (DeepRobotics wheeled quadruped) robots.
 
 Control robot velocity:
   ros2 topic pub /cmd_vel geometry_msgs/Twist "{linear: {x: 0.3, y: 0.0}, angular: {z: 0.2}}"
@@ -14,6 +15,7 @@ Examples
   python run.py --robot_type go2          # Run Go2 quadruped (default)
   python run.py --robot_type g1           # Run G1 humanoid
   python run.py --robot_type tron1        # Run TRON1 bipedal wheelfoot
+  python run.py --robot_type m20          # Run DeepRobotics M20 wheeled quadruped
   python run.py --human                   # Spawn a human pedestrian, controllable on /cmd_vel_human
 """
 
@@ -572,7 +574,8 @@ class RobotRosRunner(object):
 def main():
     """
     Instantiate the robot runner with ROS2 + sensors.
-    Supports Go2 (quadruped), G1 (humanoid), and TRON1 (bipedal wheelfoot) robots.
+    Supports Go2 (quadruped), G1 (humanoid), TRON1 (bipedal wheelfoot), and
+    M20 (DeepRobotics wheeled quadruped) robots.
 
     """
     parser = argparse.ArgumentParser()
