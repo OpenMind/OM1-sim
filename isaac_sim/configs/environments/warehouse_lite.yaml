@@ -7,6 +7,12 @@ stage_path: /World/Warehouse
 
 usd_isaac_relative: /Isaac/Environments/Simple_Warehouse/warehouse.usd
 
+# AprilTag dock; same position as warehouse so shared nav waypoints work.
+apriltag_dock:
+  position: [0.5, -2.0]
+  yaw_deg: 180.0
+  tag_size: 0.2
+
 props:
   - name: PackingTable
     usd_isaac_relative: /Isaac/Props/PackingTable/packing_table.usd

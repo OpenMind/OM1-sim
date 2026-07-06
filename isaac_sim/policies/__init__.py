@@ -9,11 +9,13 @@ import os
 from ._common import _expand_param, _load_yaml  # re-exported for run.py
 from .g1 import G1VelocityPolicy
 from .go2 import Go2VelocityPolicy
+from .m20 import M20VelocityPolicy
 from .tron1 import Tron1VelocityPolicy
 
 __all__ = [
     "Go2VelocityPolicy",
     "G1VelocityPolicy",
+    "M20VelocityPolicy",
     "Tron1VelocityPolicy",
     "build_policy",
     "_load_yaml",
@@ -43,6 +45,15 @@ def build_policy(
             encoder_path=encoder_path,
             deploy_path=deploy_path,
             history_length=robot_cfg.history_length,
+        )
+    if robot_cfg.type == "m20":
+        return M20VelocityPolicy(
+            prim_path=robot_root,
+            name="M20",
+            usd_path=usd_path,
+            position=init_pos,
+            policy_path=policy_path,
+            env_path=env_path,
         )
     if robot_cfg.type == "g1":
         return G1VelocityPolicy(
