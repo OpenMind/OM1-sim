@@ -657,6 +657,13 @@ def main():
         "--human_scale", type=float, default=1.0, help="Human model scale factor"
     )
     parser.add_argument(
+        "--vehicles",
+        action="store_true",
+        default=False,
+        help="Enable scripted waypoint vehicles (forklifts/carts) from the "
+        "environment config. Disabled by default.",
+    )
+    parser.add_argument(
         "--environment",
         type=str,
         default="warehouse",
@@ -725,8 +732,9 @@ def main():
             human_runner.setup()
         simulation_app.update()
 
-        # Scripted waypoint agents; added before world.reset() (PhysX).
-        agent_runner = agents.WaypointAgentRunner(runner._world, env_config.agents)
+        # Scripted waypoint vehicles; added before world.reset() (PhysX).
+        agent_cfgs = env_config.agents if args.vehicles else None
+        agent_runner = agents.WaypointAgentRunner(runner._world, agent_cfgs)
         agent_runner.setup()
         simulation_app.update()
 
