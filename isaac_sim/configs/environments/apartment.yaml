@@ -20,6 +20,12 @@ camera_view:
   eye: [2.0, -2.0, 1.5]
   target: [0.0, 0.0, 0.5]
 
+# AprilTag charging dock for the go2_auto_dock nodes.
+apriltag_dock:
+  position: [-0.96, -2.25]
+  yaw_deg: 90.0
+  tag_size: 0.2
+
 # Lighting rig.
 lighting:
   dome_intensity: 500.0

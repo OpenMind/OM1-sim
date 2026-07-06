@@ -68,7 +68,15 @@ import os as _os
 import sys as _sys
 
 _here = _os.path.dirname(_os.path.abspath(__file__))
-for _name in ("utils", "sim_config", "environments", "human", "agents", "people"):
+for _name in (
+    "utils",
+    "sim_config",
+    "environments",
+    "human",
+    "agents",
+    "people",
+    "apriltag",
+):
     _spec = _ilu.spec_from_file_location(_name, _os.path.join(_here, _name + ".py"))
     _mod = _ilu.module_from_spec(_spec)
     _sys.modules[_name] = _mod
@@ -83,6 +91,7 @@ import time
 from typing import Optional, Tuple
 
 import agents
+import apriltag
 import carb
 import environments
 import human
@@ -751,6 +760,9 @@ def main():
         simulation_app.update()
         runner.setup_ros()
         simulation_app.update()
+        if env_config.apriltag_dock:
+            apriltag.add_apriltag_dock(env_config.apriltag_dock, env_config.ground_z)
+            simulation_app.update()
         people_runner.verify(runner._world)
         runner.run(real_time=args.real_time)
     finally:

@@ -107,6 +107,7 @@ class EnvironmentConfig:
     agents: Optional[list] = None
     people: Optional[dict] = None
     scale_prims: Optional[list] = None
+    apriltag_dock: Optional[dict] = None
     remove_prims: Optional[list] = None
 
     @property
@@ -165,6 +166,7 @@ def load_environment_config(env_type: str) -> EnvironmentConfig:
         agents=data.get("agents"),
         people=data.get("people"),
         scale_prims=data.get("scale_prims"),
+        apriltag_dock=data.get("apriltag_dock"),
         remove_prims=data.get("remove_prims"),
     )
 
