@@ -344,6 +344,25 @@ def setup_sensors_delayed(
                 lidar_prim = result[1]
                 lidar_path = lidar_prim.GetPath().pathString
                 logger.info(f"[Sensors] 2D LiDAR created at: {lidar_path}")
+
+                # The stock 10 Hz profile accumulates one sweep across several
+                # render frames, so the scan tears during rotation (error grows
+                # with range). 120 Hz completes >=1 full sweep per frame down to
+                # 8.3 ms frame times; reportRate keeps 3200 points/rev.
+                scan_hz = 120
+                points_per_rev = 3200
+                scan_rate_attr = lidar_prim.GetAttribute(
+                    "omni:sensor:Core:scanRateBaseHz"
+                )
+                report_rate_attr = lidar_prim.GetAttribute(
+                    "omni:sensor:Core:reportRateBaseHz"
+                )
+                if scan_rate_attr and report_rate_attr:
+                    scan_rate_attr.Set(scan_hz)
+                    report_rate_attr.Set(scan_hz * points_per_rev)
+                    logger.info(f"[Sensors] 2D LiDAR scan rate set to {scan_hz} Hz")
+                else:
+                    logger.info("[WARN] 2D LiDAR scanRateBaseHz attr not found")
                 velo_rp = rep.create.render_product(
                     lidar_path, resolution=(1, 1), name="velo_lidar_rp"
                 )
