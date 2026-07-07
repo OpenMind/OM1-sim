@@ -28,6 +28,6 @@ enable_lidar: true
 # Sensor mount positions (metres, relative to base) — drive both the simulated
 # sensor placement and the published /tf_static tree.
 sensors:
-  camera_link: [0.3, 0.0, 0.10]
+  camera_link: [0.3, -0.2, 0.05]
   lidar_l1: [0.3, 0.0, 0.08]
   velodyne: [0.25, 0.0, 0.13]

@@ -3,7 +3,7 @@
 
 cmd_vel_timeout: 0.5   # seconds; stop the robot if no new /cmd_vel arrives
 physics_dt: 0.005      # 1/200 s
-render_dt: 0.1         # 1/10 s
+render_dt: 0.0333       # 1/30 s
 
 # Default per-axis velocity caps (m/s, m/s, rad/s); intersected with the policy
 # command ranges at runtime.
