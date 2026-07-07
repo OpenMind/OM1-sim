@@ -55,6 +55,9 @@ class RobotConfig:
     camera_link_pos: Vec3
     lidar_l1_pos: Vec3
     velodyne_pos: Vec3
+    # Simulated 2D RPLIDAR (-> /scan); off for robots that derive /scan
+    # from their 3D clouds instead (om_common cloud_to_scan).
+    enable_2d_lidar: bool = True
     # Multi-unit 3D lidar setup; when set it replaces the single L1 lidar.
     lidars_3d: Optional[List[Lidar3DConfig]] = None
     history_length: Optional[int] = None
@@ -168,6 +171,7 @@ def load_robot_config(robot_type: str) -> RobotConfig:
         usd_relative=data["usd_relative"],
         isaac_fallback_usd=data.get("isaac_fallback_usd"),
         enable_lidar=bool(data.get("enable_lidar", True)),
+        enable_2d_lidar=bool(data.get("enable_2d_lidar", True)),
         camera_link_pos=_as_vec3(sensors["camera_link"]),
         lidar_l1_pos=_as_vec3(sensors["lidar_l1"]),
         velodyne_pos=_as_vec3(sensors["velodyne"]),
