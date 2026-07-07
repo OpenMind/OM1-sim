@@ -18,6 +18,7 @@ REALSENSE_DEPTH_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/realsense_depth_camera"
 REALSENSE_RGB_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/realsense_rgb_camera"
 FRONT_RGB_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/front_rgb_camera"
 TOP_RGB_CAMERA_PRIM = f"{CAMERA_LINK_PRIM}/top_rgb_camera"
+BASE_LINK_PRIM = f"{GO2_STAGE_PATH}/base"
 L1_LINK_PRIM = f"{GO2_STAGE_PATH}/base/lidar_l1_link"
 L1_LIDAR_PRIM = f"{L1_LINK_PRIM}/lidar_l1_rtx"
 VELO_BASE_LINK_PRIM = f"{GO2_STAGE_PATH}/base/velodyne_base_link"
@@ -38,6 +39,20 @@ odom_ang_vel_attr = None
 def clamp(x: float, lo: float, hi: float) -> float:
     """Clamp a value between a lower and upper bound."""
     return max(lo, min(hi, x))
+
+
+def quat_xyzw_from_rpy_deg(roll_deg: float, pitch_deg: float, yaw_deg: float) -> list:
+    """Fixed-axis (roll, pitch, yaw) degrees -> xyzw quaternion (URDF rpy)."""
+    r, p, y = (math.radians(v) / 2.0 for v in (roll_deg, pitch_deg, yaw_deg))
+    cr, sr = math.cos(r), math.sin(r)
+    cp, sp = math.cos(p), math.sin(p)
+    cy, sy = math.cos(y), math.sin(y)
+    return [
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+        cr * cp * cy + sr * sp * sy,
+    ]
 
 
 def setup_cmd_vel_graph(
@@ -107,6 +122,57 @@ def ensure_link_xform(usd_stage, path: str, translation=None, rpy_rad=None):
     return prim
 
 
+def _create_rtx_lidar_pointcloud(
+    usd_stage,
+    link_prim: str,
+    sensor_name: str,
+    position: Tuple[float, float, float],
+    rpy_deg: Tuple[float, float, float],
+    topic: str,
+    frame_id: str,
+    rp_name: str,
+) -> bool:
+    """Create an RTX OS0 lidar under ``link_prim`` publishing PointCloud2 on ``topic``."""
+    import omni.kit.commands
+    import omni.replicator.core as rep
+    from pxr import Gf
+
+    ensure_link_xform(
+        usd_stage,
+        link_prim,
+        translation=position,
+        rpy_rad=tuple(math.radians(v) for v in rpy_deg),
+    )
+    result = omni.kit.commands.execute(
+        "IsaacSensorCreateRtxLidar",
+        path=sensor_name,
+        parent=link_prim,
+        config="OS0",
+        variant="OS0_REV6_128ch10hz512res",
+        translation=(0.0, 0.0, 0.0),
+        orientation=Gf.Quatd(1, 0, 0, 0),
+    )
+    if not (result and len(result) > 1 and result[1]):
+        logger.info(f"[WARN] RTX lidar creation returned: {result}")
+        return False
+
+    lidar_path = result[1].GetPath().pathString
+    logger.info(f"[Sensors] RTX lidar created at: {lidar_path}")
+    render_product = rep.create.render_product(
+        lidar_path, resolution=(1, 1), name=rp_name
+    )
+    pc_writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
+    pc_writer.initialize(
+        frameId=frame_id,
+        nodeNamespace="",
+        topicName=topic,
+        queueSize=10,
+    )
+    pc_writer.attach([render_product])
+    logger.info(f"[Sensors] RTX lidar -> {topic} (frame_id={frame_id})")
+    return True
+
+
 def setup_sensors_delayed(
     simulation_app,
     render_hz: Optional[float] = None,
@@ -115,8 +181,14 @@ def setup_sensors_delayed(
     lidar_l1_position: Optional[Tuple[float, float, float]] = None,
     lidar_velo_position: Optional[Tuple[float, float, float]] = None,
     robot_type: str = "go2",
+    lidars_3d: Optional[list] = None,
 ) -> dict:
-    """Setup sensors after simulation is fully running."""
+    """Setup sensors after simulation is fully running.
+
+    ``lidars_3d`` is an optional list of per-unit 3D lidar configs
+    (``sim_config.Lidar3DConfig``); when set it replaces the single L1 lidar
+    with one RTX lidar per entry (e.g. the M20's front + back units).
+    """
     import omni.kit.commands
     import omni.replicator.core as rep
     import omni.usd
@@ -279,45 +351,41 @@ def setup_sensors_delayed(
 
     # --- LiDARs ---
     if enable_lidar:
-        try:
-            ensure_link_xform(
-                usd_stage,
-                L1_LINK_PRIM,
-                translation=lidar_l1_position,
-                rpy_rad=(0.0, 0.0, 0.0),
-            )
-            result = omni.kit.commands.execute(
-                "IsaacSensorCreateRtxLidar",
-                path="lidar_l1_rtx",
-                parent=L1_LINK_PRIM,
-                config="OS0",
-                variant="OS0_REV6_128ch10hz512res",
-                translation=(0.0, 0.0, 0.0),
-                orientation=Gf.Quatd(1, 0, 0, 0),
-            )
-            if result and len(result) > 1 and result[1]:
-                lidar_prim = result[1]
-                lidar_path = lidar_prim.GetPath().pathString
-                logger.info(f"[Sensors] L1 LiDAR created at: {lidar_path}")
-                l1_rp = rep.create.render_product(
-                    lidar_path, resolution=(1, 1), name="l1_lidar_rp"
-                )
-                pc_writer = rep.writers.get("RtxLidarROS2PublishPointCloud")
-                pc_writer.initialize(
-                    frameId="lidar_l1_link",
-                    nodeNamespace="",
-                    topicName="/utlidar/cloud_raw",
-                    queueSize=10,
-                )
-                pc_writer.attach([l1_rp])
-                logger.info("[Sensors] L1 LiDAR -> /utlidar/cloud_raw (pre-crop)")
-            else:
-                logger.info(f"[WARN] L1 LiDAR creation returned: {result}")
-        except Exception as e:
-            logger.info(f"[WARN] L1 LiDAR setup failed: {e}")
-            import traceback
+        if lidars_3d:
+            for unit in lidars_3d:
+                try:
+                    _create_rtx_lidar_pointcloud(
+                        usd_stage,
+                        link_prim=f"{BASE_LINK_PRIM}/{unit.frame_id}",
+                        sensor_name=f"lidar_{unit.name}_rtx",
+                        position=unit.position,
+                        rpy_deg=unit.rpy_deg,
+                        topic=unit.topic,
+                        frame_id=unit.frame_id,
+                        rp_name=f"{unit.name}_lidar_rp",
+                    )
+                except Exception as e:
+                    logger.info(f"[WARN] {unit.name} LiDAR setup failed: {e}")
+                    import traceback
 
-            traceback.print_exc()
+                    traceback.print_exc()
+        else:
+            try:
+                _create_rtx_lidar_pointcloud(
+                    usd_stage,
+                    link_prim=L1_LINK_PRIM,
+                    sensor_name="lidar_l1_rtx",
+                    position=lidar_l1_position,
+                    rpy_deg=(0.0, 0.0, 0.0),
+                    topic="/utlidar/cloud_raw",
+                    frame_id="lidar_l1_link",
+                    rp_name="l1_lidar_rp",
+                )
+            except Exception as e:
+                logger.info(f"[WARN] L1 LiDAR setup failed: {e}")
+                import traceback
+
+                traceback.print_exc()
 
         try:
             ensure_link_xform(
@@ -389,12 +457,15 @@ def setup_static_tfs(
     camera_link_pos=(0.3, 0.0, 0.10),
     lidar_l1_pos=(0.3, 0.0, 0.08),
     velodyne_pos=(0.25, 0.0, 0.13),
+    lidars_3d=None,
 ) -> None:
     """Publish static TFs for sensor frames to complete the TF tree.
 
     Sensor mount positions are passed in (from the robot config) so the TF
     tree matches each robot's actual sensor placement. The camera quaternion,
     velodyne laser offset and RGB offset are fixed sensor-internal geometry.
+    When ``lidars_3d`` is set, one ``base -> frame_id`` transform is published
+    per 3D lidar unit instead of the single ``lidar_l1_link``.
     """
     import omni.graph.core as og
     from isaacsim.core.utils.prims import is_prim_path_valid
@@ -410,10 +481,23 @@ def setup_static_tfs(
     cam_quat = [0.5, -0.5, -0.5, 0.5]
     identity = [0.0, 0.0, 0.0, 1.0]
 
+    if lidars_3d:
+        lidar_tfs = [
+            (
+                "base",
+                unit.frame_id,
+                [float(v) for v in unit.position],
+                quat_xyzw_from_rpy_deg(*unit.rpy_deg),
+            )
+            for unit in lidars_3d
+        ]
+    else:
+        lidar_tfs = [("base", "lidar_l1_link", l1, identity)]
+
     # Format: (parent, child, translation, rotation_xyzw)
     static_transforms = [
         ("base_link", "base", [0.0, 0.0, 0.0], identity),
-        ("base", "lidar_l1_link", l1, identity),
+        *lidar_tfs,
         ("base", "velodyne_base_link", velo, identity),
         ("velodyne_base_link", "laser", [0.0, 0.0, 0.0377], identity),
         ("base", "imu_link", [0.0, 0.0, 0.0], identity),
@@ -772,6 +856,7 @@ def setup_ros_publishers(
     camera_link_pos: Optional[Tuple[float, float, float]] = None,
     lidar_l1_pos: Optional[Tuple[float, float, float]] = None,
     lidar_velo_pos: Optional[Tuple[float, float, float]] = None,
+    lidars_3d: Optional[list] = None,
 ) -> None:
     """Setup ROS2 publishers for sensors."""
     import omni.graph.core as og
@@ -892,6 +977,7 @@ def setup_ros_publishers(
         camera_link_pos=camera_link_pos or (0.3, 0.0, 0.10),
         lidar_l1_pos=lidar_l1_pos or (0.3, 0.0, 0.08),
         velodyne_pos=lidar_velo_pos or (0.25, 0.0, 0.13),
+        lidars_3d=lidars_3d,
     )
 
     # Odom TF publisher (dynamic - updated each frame)
