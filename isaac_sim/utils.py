@@ -402,7 +402,6 @@ def setup_static_tfs(
         ("camera_link", "realsense_depth_camera", [0.0, 0.0, 0.0], identity),
         ("camera_link", "realsense_rgb_camera", [0.0, 0.05, 0.0], identity),
         ("base_link", "realsense_depth_camera", cam, cam_quat),
-        ("map", "odom", [0.0, 0.0, 0.0], identity),
     ]
 
     create_nodes = [
