@@ -207,6 +207,7 @@ def _configure_ros_utils_paths(robot_root: str, base_link_name: str) -> None:
     """Point the ros_utils sensor prim-path globals at this robot's hierarchy."""
     ros_utils.GO2_STAGE_PATH = robot_root
     base_link = f"{robot_root}/{base_link_name}"
+    ros_utils.BASE_LINK_PRIM = base_link
     ros_utils.IMU_PRIM = f"{base_link}/imu_link"
     ros_utils.CAMERA_LINK_PRIM = f"{base_link}/camera_link"
     ros_utils.REALSENSE_DEPTH_CAMERA_PRIM = (
@@ -420,6 +421,7 @@ class RobotRosRunner(object):
         camera_link_pos = self._robot_cfg.camera_link_pos
         lidar_l1_pos = self._robot_cfg.lidar_l1_pos
         lidar_velo_pos = self._robot_cfg.velodyne_pos
+        lidars_3d = self._robot_cfg.lidars_3d
 
         self._sensors = ros_utils.setup_sensors_delayed(
             simulation_app,
@@ -429,6 +431,7 @@ class RobotRosRunner(object):
             lidar_l1_position=lidar_l1_pos,
             lidar_velo_position=lidar_velo_pos,
             robot_type=self._robot_type,
+            lidars_3d=lidars_3d,
         )
 
         # Additional render steps to initialize camera render products
@@ -442,6 +445,7 @@ class RobotRosRunner(object):
             camera_link_pos=camera_link_pos,
             lidar_l1_pos=lidar_l1_pos,
             lidar_velo_pos=lidar_velo_pos,
+            lidars_3d=lidars_3d,
         )
 
         depth_cam = SIM_CONFIG.depth_camera

@@ -28,3 +28,18 @@ sensors:
   camera_link: [0.3, 0.0, 0.12]
   lidar_l1: [0.3, 0.0, 0.10]
   velodyne: [0.25, 0.0, 0.15]
+
+# 3D lidar units (replaces the single L1 lidar when set): one RTX lidar and
+# base -> frame_id static TF per entry; merged into /utlidar/cloud_fused by
+# the om_common point_cloud_fusion node.
+lidars_3d:
+  - name: front
+    frame_id: lidar_front_link
+    topic: /utlidar/front/cloud_raw
+    position: [0.3, 0.0, 0.10]
+    rpy_deg: [0.0, 0.0, 0.0]
+  - name: back
+    frame_id: lidar_back_link
+    topic: /utlidar/back/cloud_raw
+    position: [-0.3, 0.0, 0.10]
+    rpy_deg: [0.0, 0.0, 180.0]

@@ -29,6 +29,17 @@ def _load_yaml(path: str) -> dict:
 
 
 @dataclass
+class Lidar3DConfig:
+    """One simulated 3D lidar unit (see ``lidars_3d`` in configs/robots/*.yaml)."""
+
+    name: str
+    frame_id: str
+    topic: str
+    position: Vec3
+    rpy_deg: Vec3
+
+
+@dataclass
 class RobotConfig:
     """Per-robot runtime configuration (see configs/robots/*.yaml)."""
 
@@ -44,6 +55,8 @@ class RobotConfig:
     camera_link_pos: Vec3
     lidar_l1_pos: Vec3
     velodyne_pos: Vec3
+    # Multi-unit 3D lidar setup; when set it replaces the single L1 lidar.
+    lidars_3d: Optional[List[Lidar3DConfig]] = None
     history_length: Optional[int] = None
     # Policy-file requirements (validated in _validate_policy_paths).
     requires_encoder: bool = False  # needs exported/encoder.pt (e.g. TRON1)
@@ -121,6 +134,23 @@ def _as_vec3(value) -> Vec3:
     return (float(x), float(y), float(z))
 
 
+def _load_lidars_3d(data: dict) -> Optional[List[Lidar3DConfig]]:
+    """Parse the optional ``lidars_3d`` list from a robot yaml."""
+    entries = data.get("lidars_3d")
+    if not entries:
+        return None
+    return [
+        Lidar3DConfig(
+            name=str(entry["name"]),
+            frame_id=str(entry["frame_id"]),
+            topic=str(entry["topic"]),
+            position=_as_vec3(entry["position"]),
+            rpy_deg=_as_vec3(entry.get("rpy_deg", (0.0, 0.0, 0.0))),
+        )
+        for entry in entries
+    ]
+
+
 def load_robot_config(robot_type: str) -> RobotConfig:
     """Load configs/robots/<robot_type>.yaml into a RobotConfig."""
     path = os.path.join(_CONFIG_DIR, "robots", f"{robot_type}.yaml")
@@ -141,6 +171,7 @@ def load_robot_config(robot_type: str) -> RobotConfig:
         camera_link_pos=_as_vec3(sensors["camera_link"]),
         lidar_l1_pos=_as_vec3(sensors["lidar_l1"]),
         velodyne_pos=_as_vec3(sensors["velodyne"]),
+        lidars_3d=_load_lidars_3d(data),
         history_length=data.get("history_length"),
         requires_encoder=bool(data.get("requires_encoder", False)),
         requires_env_yaml=bool(data.get("requires_env_yaml", True)),
