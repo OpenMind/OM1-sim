@@ -22,6 +22,11 @@ isaac_fallback_usd: null
 
 enable_lidar: true
 
+# 2D RPLIDAR off by default; /scan comes from the fused 3D clouds via the
+# om_common cloud_to_scan node. Override per run with --scan_source 2d|3d
+# (+ matching SCAN_SOURCE env on the sensor launch).
+enable_2d_lidar: false
+
 # Sensor mount positions (metres, relative to base_link) — drive both the
 # simulated sensor placement and the published /tf_static tree.
 sensors:
