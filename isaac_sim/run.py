@@ -432,6 +432,7 @@ class RobotRosRunner(object):
             lidar_velo_position=lidar_velo_pos,
             robot_type=self._robot_type,
             lidars_3d=lidars_3d,
+            enable_2d_lidar=self._robot_cfg.enable_2d_lidar,
         )
 
         # Additional render steps to initialize camera render products
@@ -446,6 +447,7 @@ class RobotRosRunner(object):
             lidar_l1_pos=lidar_l1_pos,
             lidar_velo_pos=lidar_velo_pos,
             lidars_3d=lidars_3d,
+            enable_2d_lidar=self._robot_cfg.enable_2d_lidar,
         )
 
         depth_cam = SIM_CONFIG.depth_camera
@@ -620,6 +622,15 @@ def main():
     parser.add_argument(
         "--no_keyboard", action="store_true", help="Disable keyboard control"
     )
+    parser.add_argument(
+        "--scan_source",
+        choices=["2d", "3d"],
+        default=None,
+        help="Override the robot config's /scan source: '2d' spawns the "
+        "simulated RPLIDAR publishing /scan directly; '3d' skips it so the "
+        "om_common cloud_to_scan node derives /scan from the 3D point cloud "
+        "(launch the sensor nodes with the matching SCAN_SOURCE env var)",
+    )
     parser.add_argument("--real_time", action="store_true", default=False)
     parser.add_argument("--physics_dt", type=float, default=SIM_CONFIG.physics_dt)
     parser.add_argument("--render_dt", type=float, default=SIM_CONFIG.render_dt)
@@ -684,6 +695,13 @@ def main():
         args.policy_dir = robot_cfg.policy_dir_abs
     if args.robot_root is None:
         args.robot_root = robot_cfg.prim_root
+    if args.scan_source is not None:
+        robot_cfg.enable_2d_lidar = args.scan_source == "2d"
+        logger.info(
+            "Scan source override: %s (2D lidar %s)",
+            args.scan_source,
+            "enabled" if robot_cfg.enable_2d_lidar else "disabled",
+        )
 
     logger.info("Running %s robot simulation", args.robot_type.upper())
 

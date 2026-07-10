@@ -22,6 +22,11 @@ isaac_fallback_usd: null
 
 enable_lidar: true
 
+# 2D RPLIDAR off by default; /scan comes from the fused 3D clouds via the
+# om_common cloud_to_scan node. Override per run with --scan_source 2d|3d
+# (+ matching SCAN_SOURCE env on the sensor launch).
+enable_2d_lidar: false
+
 # Sensor mount positions (metres, relative to base_link) — drive both the
 # simulated sensor placement and the published /tf_static tree.
 sensors:
@@ -30,16 +35,18 @@ sensors:
   velodyne: [0.25, 0.0, 0.15]
 
 # 3D lidar units (replaces the single L1 lidar when set): one RTX lidar and
-# base -> frame_id static TF per entry; merged into /utlidar/cloud_fused by
-# the om_common point_cloud_fusion node.
+# base -> frame_id static TF per entry. Mount poses mirror the real M20's
+# base_link -> lidar_{front,rear} static transforms (x/y/z + rpy) so the sim
+# TF tree matches the robot 1:1. The two clouds are merged into /lidar by the
+# om_common point_cloud_fusion node (see m20_sdk/sensor_launch.py).
 lidars_3d:
   - name: front
-    frame_id: lidar_front_link
-    topic: /utlidar/front/cloud_raw
-    position: [0.3, 0.0, 0.10]
-    rpy_deg: [0.0, 0.0, 0.0]
-  - name: back
-    frame_id: lidar_back_link
-    topic: /utlidar/back/cloud_raw
-    position: [-0.3, 0.0, 0.10]
-    rpy_deg: [0.0, 0.0, 180.0]
+    frame_id: lidar_front
+    topic: /lidar_points_front
+    position: [0.32028, 0.0, -0.013]
+    rpy_deg: [0.0, -90.0, 180.0]
+  - name: rear
+    frame_id: lidar_rear
+    topic: /lidar_points_rear
+    position: [-0.32028, 0.0, -0.013]
+    rpy_deg: [0.0, -90.0, 0.0]

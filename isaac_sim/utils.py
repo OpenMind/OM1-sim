@@ -131,6 +131,7 @@ def _create_rtx_lidar_pointcloud(
     topic: str,
     frame_id: str,
     rp_name: str,
+    render_hz: Optional[float] = None,
 ) -> bool:
     """Create an RTX OS0 lidar under ``link_prim`` publishing PointCloud2 on ``topic``."""
     import omni.kit.commands
@@ -156,8 +157,27 @@ def _create_rtx_lidar_pointcloud(
         logger.info(f"[WARN] RTX lidar creation returned: {result}")
         return False
 
-    lidar_path = result[1].GetPath().pathString
+    lidar_prim = result[1]
+    lidar_path = lidar_prim.GetPath().pathString
     logger.info(f"[Sensors] RTX lidar created at: {lidar_path}")
+
+    if render_hz:
+        scan_attr = lidar_prim.GetAttribute("omni:sensor:Core:scanRateBaseHz")
+        if scan_attr and scan_attr.IsValid():
+            cur_scan = scan_attr.Get()
+            if cur_scan and render_hz > cur_scan:
+                target_scan = float(render_hz)
+                scan_attr.Set(target_scan)
+                logger.info(
+                    f"[Sensors] RTX lidar scan rate {cur_scan}->{target_scan} Hz "
+                    "(azimuth resolution auto-reduced to fit fire time)"
+                )
+        else:
+            logger.info(
+                "[WARN] RTX lidar scanRateBaseHz attr not found; leaving stock "
+                "10 Hz (cloud may flash at higher render rates)"
+            )
+
     render_product = rep.create.render_product(
         lidar_path, resolution=(1, 1), name=rp_name
     )
@@ -182,12 +202,15 @@ def setup_sensors_delayed(
     lidar_velo_position: Optional[Tuple[float, float, float]] = None,
     robot_type: str = "go2",
     lidars_3d: Optional[list] = None,
+    enable_2d_lidar: bool = True,
 ) -> dict:
     """Setup sensors after simulation is fully running.
 
     ``lidars_3d`` is an optional list of per-unit 3D lidar configs
     (``sim_config.Lidar3DConfig``); when set it replaces the single L1 lidar
     with one RTX lidar per entry (e.g. the M20's front + back units).
+    ``enable_2d_lidar`` gates the simulated RPLIDAR (-> /scan); robots that
+    derive /scan from their 3D clouds turn it off.
     """
     import omni.kit.commands
     import omni.replicator.core as rep
@@ -363,6 +386,7 @@ def setup_sensors_delayed(
                         topic=unit.topic,
                         frame_id=unit.frame_id,
                         rp_name=f"{unit.name}_lidar_rp",
+                        render_hz=render_hz,
                     )
                 except Exception as e:
                     logger.info(f"[WARN] {unit.name} LiDAR setup failed: {e}")
@@ -380,6 +404,7 @@ def setup_sensors_delayed(
                     topic="/utlidar/cloud_raw",
                     frame_id="lidar_l1_link",
                     rp_name="l1_lidar_rp",
+                    render_hz=render_hz,
                 )
             except Exception as e:
                 logger.info(f"[WARN] L1 LiDAR setup failed: {e}")
@@ -387,6 +412,7 @@ def setup_sensors_delayed(
 
                 traceback.print_exc()
 
+    if enable_lidar and enable_2d_lidar:
         try:
             ensure_link_xform(
                 usd_stage,
@@ -458,6 +484,7 @@ def setup_static_tfs(
     lidar_l1_pos=(0.3, 0.0, 0.08),
     velodyne_pos=(0.25, 0.0, 0.13),
     lidars_3d=None,
+    enable_2d_lidar=True,
 ) -> None:
     """Publish static TFs for sensor frames to complete the TF tree.
 
@@ -494,12 +521,19 @@ def setup_static_tfs(
     else:
         lidar_tfs = [("base", "lidar_l1_link", l1, identity)]
 
+    if enable_2d_lidar:
+        velo_tfs = [
+            ("base", "velodyne_base_link", velo, identity),
+            ("velodyne_base_link", "laser", [0.0, 0.0, 0.0377], identity),
+        ]
+    else:
+        velo_tfs = []
+
     # Format: (parent, child, translation, rotation_xyzw)
     static_transforms = [
         ("base_link", "base", [0.0, 0.0, 0.0], identity),
         *lidar_tfs,
-        ("base", "velodyne_base_link", velo, identity),
-        ("velodyne_base_link", "laser", [0.0, 0.0, 0.0377], identity),
+        *velo_tfs,
         ("base", "imu_link", [0.0, 0.0, 0.0], identity),
         ("base", "camera_link", cam, cam_quat),
         ("camera_link", "realsense_depth_camera", [0.0, 0.0, 0.0], identity),
@@ -857,6 +891,7 @@ def setup_ros_publishers(
     lidar_l1_pos: Optional[Tuple[float, float, float]] = None,
     lidar_velo_pos: Optional[Tuple[float, float, float]] = None,
     lidars_3d: Optional[list] = None,
+    enable_2d_lidar: bool = True,
 ) -> None:
     """Setup ROS2 publishers for sensors."""
     import omni.graph.core as og
@@ -978,6 +1013,7 @@ def setup_ros_publishers(
         lidar_l1_pos=lidar_l1_pos or (0.3, 0.0, 0.08),
         velodyne_pos=lidar_velo_pos or (0.25, 0.0, 0.13),
         lidars_3d=lidars_3d,
+        enable_2d_lidar=enable_2d_lidar,
     )
 
     # Odom TF publisher (dynamic - updated each frame)
