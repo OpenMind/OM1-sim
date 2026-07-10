@@ -131,6 +131,7 @@ def _create_rtx_lidar_pointcloud(
     topic: str,
     frame_id: str,
     rp_name: str,
+    render_hz: Optional[float] = None,
 ) -> bool:
     """Create an RTX OS0 lidar under ``link_prim`` publishing PointCloud2 on ``topic``."""
     import omni.kit.commands
@@ -156,8 +157,27 @@ def _create_rtx_lidar_pointcloud(
         logger.info(f"[WARN] RTX lidar creation returned: {result}")
         return False
 
-    lidar_path = result[1].GetPath().pathString
+    lidar_prim = result[1]
+    lidar_path = lidar_prim.GetPath().pathString
     logger.info(f"[Sensors] RTX lidar created at: {lidar_path}")
+
+    if render_hz:
+        scan_attr = lidar_prim.GetAttribute("omni:sensor:Core:scanRateBaseHz")
+        if scan_attr and scan_attr.IsValid():
+            cur_scan = scan_attr.Get()
+            if cur_scan and render_hz > cur_scan:
+                target_scan = float(render_hz)
+                scan_attr.Set(target_scan)
+                logger.info(
+                    f"[Sensors] RTX lidar scan rate {cur_scan}->{target_scan} Hz "
+                    "(azimuth resolution auto-reduced to fit fire time)"
+                )
+        else:
+            logger.info(
+                "[WARN] RTX lidar scanRateBaseHz attr not found; leaving stock "
+                "10 Hz (cloud may flash at higher render rates)"
+            )
+
     render_product = rep.create.render_product(
         lidar_path, resolution=(1, 1), name=rp_name
     )
@@ -366,6 +386,7 @@ def setup_sensors_delayed(
                         topic=unit.topic,
                         frame_id=unit.frame_id,
                         rp_name=f"{unit.name}_lidar_rp",
+                        render_hz=render_hz,
                     )
                 except Exception as e:
                     logger.info(f"[WARN] {unit.name} LiDAR setup failed: {e}")
@@ -383,6 +404,7 @@ def setup_sensors_delayed(
                     topic="/utlidar/cloud_raw",
                     frame_id="lidar_l1_link",
                     rp_name="l1_lidar_rp",
+                    render_hz=render_hz,
                 )
             except Exception as e:
                 logger.info(f"[WARN] L1 LiDAR setup failed: {e}")
