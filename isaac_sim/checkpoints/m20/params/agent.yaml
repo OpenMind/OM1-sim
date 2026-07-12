@@ -1,36 +1,42 @@
 seed: 42
 device: cuda:0
 num_steps_per_env: 24
-max_iterations: 20000
-empirical_normalization: false
+max_iterations: 3000
+empirical_normalization: {}
 obs_groups: {}
 clip_actions: 100
+check_for_nan: true
 save_interval: 100
-experiment_name: deeprobotics_m20_rough
+experiment_name: deeprobotics_m20_rough_wheelpen
 run_name: ''
 logger: tensorboard
 neptune_project: isaaclab
 wandb_project: isaaclab
-resume: false
-load_run: .*
-load_checkpoint: model_.*.pt
+resume: true
+load_run: 2026-07-04_01-28-49
+load_checkpoint: model_19999.pt
 class_name: OnPolicyRunner
-policy:
-  class_name: ActorCritic
-  init_noise_std: 1.0
-  noise_std_type: log
-  state_dependent_std: false
-  actor_obs_normalization: {}
-  critic_obs_normalization: {}
-  actor_hidden_dims:
-  - 512
-  - 256
-  - 128
-  critic_hidden_dims:
+actor:
+  class_name: MLPModel
+  hidden_dims:
   - 512
   - 256
   - 128
   activation: elu
+  obs_normalization: false
+  distribution_cfg:
+    class_name: GaussianDistribution
+    init_std: 1.0
+    std_type: log
+critic:
+  class_name: MLPModel
+  hidden_dims:
+  - 512
+  - 256
+  - 128
+  activation: elu
+  obs_normalization: false
+  distribution_cfg: null
 algorithm:
   class_name: PPO
   num_learning_epochs: 5
@@ -42,9 +48,12 @@ algorithm:
   entropy_coef: 0.01
   desired_kl: 0.01
   max_grad_norm: 1.0
+  optimizer: adam
   value_loss_coef: 1.0
   use_clipped_value_loss: true
   clip_param: 0.2
   normalize_advantage_per_mini_batch: false
+  share_cnn_encoders: false
   rnd_cfg: null
   symmetry_cfg: null
+policy: {}

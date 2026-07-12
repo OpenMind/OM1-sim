@@ -22,17 +22,13 @@ isaac_fallback_usd: null
 
 enable_lidar: true
 
-# 2D RPLIDAR off by default; /scan comes from the fused 3D clouds via the
-# om_common cloud_to_scan node. Override per run with --scan_source 2d|3d
-# (+ matching SCAN_SOURCE env on the sensor launch).
-enable_2d_lidar: false
+enable_2d_lidar: true
 
-# Sensor mount positions (metres, relative to base_link) — drive both the
-# simulated sensor placement and the published /tf_static tree.
+# Sensor mount positions
 sensors:
   camera_link: [0.3, 0.0, 0.12]
   lidar_l1: [0.3, 0.0, 0.10]
-  velodyne: [0.25, 0.0, 0.15]
+  velodyne: [0.0, 0.0, 0.22]
 
 # 3D lidar units (replaces the single L1 lidar when set): one RTX lidar and
 # base -> frame_id static TF per entry. Mount poses mirror the real M20's
