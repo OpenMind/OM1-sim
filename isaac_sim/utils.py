@@ -898,6 +898,7 @@ def setup_ros_publishers(
     import omni.replicator.core as rep
     import omni.syntheticdata as syn_data
     import omni.syntheticdata._syntheticdata as sd
+    from isaacsim.core.nodes.scripts.utils import set_target_prims
     from isaacsim.core.utils.prims import is_prim_path_valid
 
     # Clock publisher
@@ -923,7 +924,6 @@ def setup_ros_publishers(
         )
     logger.info("[ROS2] Clock publisher -> /clock")
 
-    # IMU publisher
     if not is_prim_path_valid("/ImuGraph"):
         og.Controller.edit(
             {
@@ -941,7 +941,7 @@ def setup_ros_publishers(
                 ],
                 og.Controller.Keys.CONNECT: [
                     ("OnTick.outputs:tick", "Read.inputs:execIn"),
-                    ("Read.outputs:execOut", "Pub.inputs:execIn"),
+                    ("OnTick.outputs:tick", "Pub.inputs:execIn"),
                     ("Ctx.outputs:context", "Pub.inputs:context"),
                     ("Clock.outputs:simulationTime", "Pub.inputs:timeStamp"),
                     ("Read.outputs:angVel", "Pub.inputs:angularVelocity"),
@@ -950,15 +950,20 @@ def setup_ros_publishers(
                 ],
                 og.Controller.Keys.SET_VALUES: [
                     ("Ctx.inputs:useDomainIDEnvVar", True),
-                    ("Read.inputs:imuPrim", IMU_PRIM),
                     ("Read.inputs:readGravity", True),
+                    ("Read.inputs:useLatestData", True),
                     ("Pub.inputs:frameId", "imu_link"),
-                    ("Pub.inputs:topicName", "imu/data"),
+                    ("Pub.inputs:topicName", "/imu"),
                     ("Pub.inputs:queueSize", 10),
                 ],
             },
         )
-    logger.info("[ROS2] IMU publisher -> imu/data")
+        set_target_prims(
+            primPath="/ImuGraph/Read",
+            inputName="inputs:imuPrim",
+            targetPrimPaths=[IMU_PRIM],
+        )
+    logger.info(f"[ROS2] IMU publisher -> /imu (imu prim: {IMU_PRIM})")
 
     # Camera publishers with CameraInfo
     if sensors.get("realsense_depth_camera"):

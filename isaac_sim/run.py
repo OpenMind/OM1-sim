@@ -794,7 +794,14 @@ def main():
             apriltag.add_apriltag_dock(env_config.apriltag_dock, env_config.ground_z)
             simulation_app.update()
         people_runner.verify(runner._world)
+
+        # Reset for IMU
+        if runner._enable_sensors:
+            runner._world.reset()
+            runner.first_step = True
+
         runner.run(real_time=args.real_time)
+
     finally:
         simulation_app.close()
 
