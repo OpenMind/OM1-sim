@@ -64,6 +64,8 @@ class RobotConfig:
     # Policy-file requirements (validated in _validate_policy_paths).
     requires_encoder: bool = False  # needs exported/encoder.pt (e.g. TRON1)
     requires_env_yaml: bool = True  # needs params/env.yaml (TRON1 is deploy-only)
+    # Pivot assist: scripted turn-in-place for policies that support it
+    pivot_assist: bool = False
 
     @property
     def policy_dir_abs(self) -> str:
@@ -179,6 +181,7 @@ def load_robot_config(robot_type: str) -> RobotConfig:
         history_length=data.get("history_length"),
         requires_encoder=bool(data.get("requires_encoder", False)),
         requires_env_yaml=bool(data.get("requires_env_yaml", True)),
+        pivot_assist=bool(data.get("pivot_assist", False)),
     )
 
 
