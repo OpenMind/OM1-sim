@@ -95,6 +95,26 @@ class M20VelocityPolicy(PolicyController):
         self._wheel_vel_target: Optional[np.ndarray] = None
         self._policy_counter = 0
 
+        # Scripted turn-in-place ("pivot mode", enabled by the runner).
+        self.pivot_assist = False
+        self._pivot_wheel_gain = 17.0  # wheel rad/s per commanded rad/s of yaw
+        self._pivot_wheel_kp = 6.0  # wheel rad/s per rad/s of yaw-rate error
+        self._pivot_wheel_cap = 16.0  # highest wheel target validated
+        self._pivot_rate_cap = 0.6  # rad/s of yaw actually attempted
+        self._pivot_ramp_s = 0.6  # spin-up time to full differential
+        self._pivot_ramp = 0.0
+        # Anchor hold: a capped common-mode wheel term (body-x drive) pulls the
+        # base back toward the pivot-entry point to limit positional wander.
+        self._pivot_anchor: Optional[np.ndarray] = None
+        self._pivot_pos_kp = 25.0  # wheel rad/s per metre of anchor error
+        self._pivot_vel_kd = 8.0  # wheel rad/s per m/s of body-x speed
+        self._pivot_common_cap = 4.0
+        # ICR-centering front/rear split: disabled — any split strong enough to
+        # move the rotation centre un-slips an axle and stalls the spin.
+        self._pivot_icr_gain = 0.0  # split fraction per metre of ICR offset
+        self._pivot_split_cap = 0.15  # |front/rear split| limit (fraction of w)
+        self._pivot_leg_action = np.zeros(self._num_legs, dtype=np.float32)
+
     def initialize(self, physics_sim_view=None) -> None:
         """Initialize the articulation, resolve joint ordering, set defaults."""
         # control_mode="position": legs track position targets (kp=80); wheels
@@ -157,6 +177,16 @@ class M20VelocityPolicy(PolicyController):
 
     def forward(self, dt: float, command: np.ndarray) -> None:
         """Run one policy step, applying leg position + wheel velocity targets."""
+        if (
+            self.pivot_assist
+            and abs(command[2]) > 0.2
+            and abs(command[0]) < 0.05
+            and abs(command[1]) < 0.05
+        ):
+            self._forward_pivot(dt, command)
+            return
+        self._pivot_anchor = None  # next pivot re-anchors at its entry pose
+        self._pivot_ramp = 0.0
         if self._policy_counter % self._decimation == 0:
             obs = self._compute_observation(command)
             action = np.array(self._compute_action(obs), dtype=np.float32)
@@ -178,6 +208,102 @@ class M20VelocityPolicy(PolicyController):
         vel_cmd = np.zeros(len(pos_cmd), dtype=np.float32)
         vel_cmd[self._wheel_ids] = self._wheel_vel_target
 
+        self.robot.apply_action(
+            ArticulationAction(joint_positions=pos_cmd, joint_velocities=vel_cmd)
+        )
+        self._policy_counter += 1
+
+    def _forward_pivot(self, dt: float, command: np.ndarray) -> None:
+        """Scripted skid-steer pivot: policy-balanced legs, opposed wheel targets."""
+        # Measured body yaw rate for the feedback term.
+        ang_vel_I = self.robot.get_angular_velocity()
+        pos_I, q_IB = self.robot.get_world_pose()
+        R_IB = quat_to_rot_matrix(q_IB)
+        wz_actual = float(R_IB.transpose()[2] @ ang_vel_I)
+
+        # Capped and ramped target rate: gentle skid forces, no step transient.
+        self._pivot_ramp = min(1.0, self._pivot_ramp + dt / self._pivot_ramp_s)
+        wz_cmd = (
+            float(np.clip(command[2], -self._pivot_rate_cap, self._pivot_rate_cap))
+            * self._pivot_ramp
+        )
+
+        if self._policy_counter % self._decimation == 0:
+            pivot_obs_cmd = np.array([0.0, 0.0, wz_cmd], dtype=np.float32)
+            obs = self._compute_observation(pivot_obs_cmd)
+            action = np.array(self._compute_action(obs), dtype=np.float32)
+            default_pos_l = np.asarray(self.default_pos, dtype=np.float32)
+            self._leg_pos_target = (
+                default_pos_l[self._leg_ids]
+                + LEG_ACTION_SCALE * action[: self._num_legs]
+            )
+            self._pivot_leg_action = action[: self._num_legs].copy()
+
+        w = float(
+            np.clip(
+                self._pivot_wheel_gain * wz_cmd
+                + self._pivot_wheel_kp * (wz_cmd - wz_actual),
+                -self._pivot_wheel_cap,
+                self._pivot_wheel_cap,
+            )
+        )
+
+        # Anchor hold: common-mode wheel velocity toward the pivot-entry point.
+        if self._pivot_anchor is None:
+            self._pivot_anchor = np.array(pos_I[:2], dtype=np.float64)
+        err_w = self._pivot_anchor - np.asarray(pos_I[:2], dtype=np.float64)
+        body_x_w = R_IB[:2, 0]  # body x-axis in world (xy)
+        err_x = float(err_w @ body_x_w)
+        lin_vel_I = self.robot.get_linear_velocity()
+        vx_body = float(R_IB.transpose()[0] @ lin_vel_I)
+        # Positive joint velocity rolls the wheels BACKWARD (-x), so drive
+        # the common mode with the negated body-x correction.
+        common = float(
+            np.clip(
+                -(self._pivot_pos_kp * err_x - self._pivot_vel_kd * vx_body),
+                -self._pivot_common_cap,
+                self._pivot_common_cap,
+            )
+        )
+
+        # ICR centering via front/rear split (see gain comments in __init__).
+        vy_body = float(R_IB.transpose()[1] @ lin_vel_I)
+        wz_safe = wz_actual if abs(wz_actual) > 0.15 else float(np.sign(wz_cmd)) * 0.15
+        bx_icr = -vy_body / wz_safe
+        split = float(
+            np.clip(
+                -self._pivot_icr_gain * bx_icr,
+                -self._pivot_split_cap,
+                self._pivot_split_cap,
+            )
+        )
+        w_front = w * (1.0 + split)
+        w_rear = w * (1.0 - split)
+
+        default_pos = np.asarray(self.default_pos, dtype=np.float32)
+        self._wheel_vel_target = np.clip(
+            np.array(
+                [
+                    w_front + common,
+                    -w_front + common,
+                    w_rear + common,
+                    -w_rear + common,
+                ],
+                dtype=np.float32,
+            ),
+            -self._pivot_wheel_cap,
+            self._pivot_wheel_cap,
+        )
+        # Keep the policy's obs self-consistent: last_action carries its own
+        # leg action plus the scripted wheel targets in action units.
+        self._previous_action = np.concatenate(
+            [self._pivot_leg_action, self._wheel_vel_target / WHEEL_ACTION_SCALE]
+        ).astype(np.float32)
+
+        pos_cmd = default_pos.copy()
+        pos_cmd[self._leg_ids] = self._leg_pos_target
+        vel_cmd = np.zeros(len(pos_cmd), dtype=np.float32)
+        vel_cmd[self._wheel_ids] = self._wheel_vel_target
         self.robot.apply_action(
             ArticulationAction(joint_positions=pos_cmd, joint_velocities=vel_cmd)
         )

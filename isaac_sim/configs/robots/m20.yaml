@@ -24,11 +24,13 @@ enable_lidar: true
 
 enable_2d_lidar: true
 
+pivot_assist: true
+
 # Sensor mount positions
 sensors:
   camera_link: [0.3, 0.0, 0.12]
   lidar_l1: [0.3, 0.0, 0.10]
-  velodyne: [0.0, 0.0, 0.22]
+  velodyne: [0.0, 0.0, 0.05]
 
 # 3D lidar units (replaces the single L1 lidar when set): one RTX lidar and
 # base -> frame_id static TF per entry. Mount poses mirror the real M20's
