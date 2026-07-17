@@ -163,19 +163,21 @@ def _create_rtx_lidar_pointcloud(
 
     if render_hz:
         scan_attr = lidar_prim.GetAttribute("omni:sensor:Core:scanRateBaseHz")
-        if scan_attr and scan_attr.IsValid():
-            cur_scan = scan_attr.Get()
-            if cur_scan and render_hz > cur_scan:
-                target_scan = float(render_hz)
+        report_attr = lidar_prim.GetAttribute("omni:sensor:Core:reportRateBaseHz")
+        if scan_attr and scan_attr.IsValid() and report_attr and report_attr.IsValid():
+            cur_scan = scan_attr.Get() or 10
+            target_scan = math.ceil(render_hz)
+            if target_scan > cur_scan:
                 scan_attr.Set(target_scan)
+                cols = int((report_attr.Get() or 5120) / target_scan)
                 logger.info(
                     f"[Sensors] RTX lidar scan rate {cur_scan}->{target_scan} Hz "
-                    "(azimuth resolution auto-reduced to fit fire time)"
+                    f"(full sweep per frame, {cols} columns/rev)"
                 )
         else:
             logger.info(
                 "[WARN] RTX lidar scanRateBaseHz attr not found; leaving stock "
-                "10 Hz (cloud may flash at higher render rates)"
+                "10 Hz (cloud will tear during rotation)"
             )
 
     render_product = rep.create.render_product(
