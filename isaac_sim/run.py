@@ -274,6 +274,8 @@ class RobotRosRunner(object):
         enable_keyboard: bool,
         robot_cfg: "sim_config.RobotConfig" = None,
         env_config: "sim_config.EnvironmentConfig" = None,
+        wz_arc_assist: float = 0.0,
+        pivot_assist: bool = False,
     ) -> None:
         """
         Creates the simulation world with preset physics_dt and render_dt and creates a robot inside the warehouse.
@@ -347,6 +349,15 @@ class RobotRosRunner(object):
         self._cmd_vel_only = cmd_vel_only
         self._enable_sensors = enable_sensors
         self._enable_keyboard = enable_keyboard
+        self._wz_arc_assist = wz_arc_assist
+        if pivot_assist:
+            if hasattr(self._robot, "pivot_assist"):
+                self._robot.pivot_assist = True
+            else:
+                logger.warning(
+                    "pivot_assist requested but the %s policy has no pivot mode; ignored",
+                    robot_cfg.type if robot_cfg else "unknown",
+                )
 
         self._vx_max = vx_max
         self._vy_max = vy_max
@@ -416,7 +427,8 @@ class RobotRosRunner(object):
 
         render_hz = None
         if self._render_dt:
-            render_hz = 1.0 / self._render_dt
+            steps = max(1, int(self._render_dt / self._physics_dt + 1e-9))
+            render_hz = 1.0 / (self._physics_dt * steps)
 
         camera_link_pos = self._robot_cfg.camera_link_pos
         lidar_l1_pos = self._robot_cfg.lidar_l1_pos
@@ -548,6 +560,14 @@ class RobotRosRunner(object):
                     cmd = cmd + cmd_vel
 
         cmd = np.minimum(np.maximum(cmd, self._cmd_min), self._cmd_max)
+        if (
+            self._wz_arc_assist > 0.0
+            and not getattr(self._robot, "pivot_assist", False)
+            and abs(cmd[2]) > 0.2
+            and abs(cmd[0]) < 0.05
+            and abs(cmd[1]) < 0.05
+        ):
+            cmd[0] = min(self._wz_arc_assist, self._cmd_max[0])
         self._robot.forward(step_size, cmd)
         self._update_odom()
 
@@ -616,6 +636,26 @@ def main():
         help="Robot prim path (auto-detected based on robot_type if not set)",
     )
     parser.add_argument("--cmd_vel_only", action="store_true", default=False)
+    parser.add_argument(
+        "--wz_arc_assist",
+        type=float,
+        default=0.0,
+        help="If > 0, serve yaw-only commands as tight arcs by injecting this "
+        "forward speed (m/s). Ignored when the robot's pivot mode is active.",
+    )
+    parser.add_argument(
+        "--pivot_assist",
+        action="store_true",
+        default=False,
+        help="Force scripted turn-in-place for yaw-only commands "
+        "(default comes from the robot config's pivot_assist field).",
+    )
+    parser.add_argument(
+        "--no_pivot_assist",
+        action="store_true",
+        default=False,
+        help="Disable scripted turn-in-place even if the robot config enables it.",
+    )
     parser.add_argument(
         "--no_sensors", action="store_true", help="Disable sensor setup"
     )
@@ -736,6 +776,11 @@ def main():
             enable_keyboard=not args.no_keyboard,
             robot_cfg=robot_cfg,
             env_config=env_config,
+            wz_arc_assist=args.wz_arc_assist,
+            pivot_assist=(
+                (args.pivot_assist or robot_cfg.pivot_assist)
+                and not args.no_pivot_assist
+            ),
         )
         simulation_app.update()
 
