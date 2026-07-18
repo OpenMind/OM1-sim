@@ -111,16 +111,29 @@ class AnimatedPeopleRunner:
             usd_path=assets_root + BIPED_SETUP_USD,
         )
         UsdGeom.Imageable(biped_prim).MakeInvisible()
-        anim_graph = next(
-            (
-                prim
-                for prim in Usd.PrimRange(biped_prim)
-                if prim.GetTypeName() == "AnimationGraph"
-            ),
-            None,
-        )
+        app = omni.kit.app.get_app()
+
+        def _find_anim_graph():
+            return next(
+                (
+                    prim
+                    for prim in Usd.PrimRange(biped_prim)
+                    if prim.GetTypeName() == "AnimationGraph"
+                ),
+                None,
+            )
+
+        anim_graph = _find_anim_graph()
+        for _ in range(600):  # ~10s budget at 60Hz app updates
+            if anim_graph is not None:
+                break
+            app.update()
+            anim_graph = _find_anim_graph()
+
         if anim_graph is None:
-            logger.error("No AnimationGraph found in %s", BIPED_SETUP_USD)
+            logger.error(
+                "No AnimationGraph found in %s after waiting for load", BIPED_SETUP_USD
+            )
             return False
 
         spawned = 0
