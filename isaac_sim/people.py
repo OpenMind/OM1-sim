@@ -105,11 +105,8 @@ class AnimatedPeopleRunner:
             behavior_script,
         )
 
-        biped_prim = create_prim(
-            f"{CHARACTERS_ROOT}/{BIPED_SETUP_NAME}",
-            "Xform",
-            usd_path=assets_root + BIPED_SETUP_USD,
-        )
+        biped_prim = create_prim(f"{CHARACTERS_ROOT}/{BIPED_SETUP_NAME}", "Xform")
+        biped_prim.GetReferences().AddReference(assets_root + BIPED_SETUP_USD)
         UsdGeom.Imageable(biped_prim).MakeInvisible()
         app = omni.kit.app.get_app()
 
@@ -154,8 +151,8 @@ class AnimatedPeopleRunner:
                 "Xform",
                 position=(x, y, z),
                 orientation=(math.cos(yaw / 2.0), 0.0, 0.0, math.sin(yaw / 2.0)),
-                usd_path=usd_path,
             )
+            prim.GetReferences().AddReference(usd_path)
 
             import AnimGraphSchema
             import OmniScriptingSchema
