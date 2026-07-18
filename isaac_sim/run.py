@@ -427,8 +427,7 @@ class RobotRosRunner(object):
 
         render_hz = None
         if self._render_dt:
-            steps = max(1, int(self._render_dt / self._physics_dt + 1e-9))
-            render_hz = 1.0 / (self._physics_dt * steps)
+            render_hz = 1.0 / self._render_dt
 
         camera_link_pos = self._robot_cfg.camera_link_pos
         lidar_l1_pos = self._robot_cfg.lidar_l1_pos
@@ -843,7 +842,11 @@ def main():
         # Reset for IMU
         if runner._enable_sensors:
             runner._world.reset()
+            if "imu" in runner._sensors:
+                runner._sensors["imu"].initialize()
             runner.first_step = True
+            for _ in range(3):
+                runner._world.step(render=True)
 
         runner.run(real_time=args.real_time)
 
