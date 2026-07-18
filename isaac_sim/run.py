@@ -842,11 +842,15 @@ def main():
         # Reset for IMU
         if runner._enable_sensors:
             runner._world.reset()
-            if "imu" in runner._sensors:
-                runner._sensors["imu"].initialize()
             runner.first_step = True
             for _ in range(3):
                 runner._world.step(render=True)
+            imu = runner._sensors.get("imu")
+            if imu is not None:
+                try:
+                    imu.initialize(physics_sim_view=runner._world.physics_sim_view)
+                except Exception:
+                    logger.warning("IMU reintialization failed")
 
         runner.run(real_time=args.real_time)
 
