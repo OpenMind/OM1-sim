@@ -60,7 +60,7 @@ simulation_app = SimulationApp(
         "renderer": "RaytracedLighting",
         "headless": False,
         "extra_args": _anim_args
-        + ["--/app/exts/excluded/++=omni.replicator.replicator_yaml"],
+        + ['--/app/exts/excluded=["omni.replicator.replicator_yaml"]'],
     }
 )
 
