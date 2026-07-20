@@ -24,7 +24,8 @@ enable_lidar: true
 
 enable_2d_lidar: true
 
-pivot_assist: true
+# Scripted turn-in-place assist for yaw-only commands (off by default;--pivot_assist for faster pivots).
+pivot_assist: false
 
 # Sensor mount positions
 sensors:

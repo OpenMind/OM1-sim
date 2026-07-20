@@ -95,9 +95,10 @@ class M20VelocityPolicy(PolicyController):
         self._wheel_vel_target: Optional[np.ndarray] = None
         self._policy_counter = 0
 
-        # Scripted turn-in-place ("pivot mode", enabled by the runner).
+        # Scripted turn-in-place ("pivot mode"), opt-in via the robot config's
+        # pivot_assist field or --pivot_assist.
         self.pivot_assist = False
-        self._pivot_wheel_gain = 17.0  # wheel rad/s per commanded rad/s of yaw
+        self._pivot_wheel_gain = 11.5  # wheel rad/s per commanded rad/s of yaw
         self._pivot_wheel_kp = 6.0  # wheel rad/s per rad/s of yaw-rate error
         self._pivot_wheel_cap = 16.0  # highest wheel target validated
         self._pivot_rate_cap = 0.6  # rad/s of yaw actually attempted
@@ -109,10 +110,6 @@ class M20VelocityPolicy(PolicyController):
         self._pivot_pos_kp = 25.0  # wheel rad/s per metre of anchor error
         self._pivot_vel_kd = 8.0  # wheel rad/s per m/s of body-x speed
         self._pivot_common_cap = 4.0
-        # ICR-centering front/rear split: disabled — any split strong enough to
-        # move the rotation centre un-slips an axle and stalls the spin.
-        self._pivot_icr_gain = 0.0  # split fraction per metre of ICR offset
-        self._pivot_split_cap = 0.15  # |front/rear split| limit (fraction of w)
         self._pivot_leg_action = np.zeros(self._num_legs, dtype=np.float32)
 
     def initialize(self, physics_sim_view=None) -> None:
@@ -266,29 +263,10 @@ class M20VelocityPolicy(PolicyController):
             )
         )
 
-        # ICR centering via front/rear split (see gain comments in __init__).
-        vy_body = float(R_IB.transpose()[1] @ lin_vel_I)
-        wz_safe = wz_actual if abs(wz_actual) > 0.15 else float(np.sign(wz_cmd)) * 0.15
-        bx_icr = -vy_body / wz_safe
-        split = float(
-            np.clip(
-                -self._pivot_icr_gain * bx_icr,
-                -self._pivot_split_cap,
-                self._pivot_split_cap,
-            )
-        )
-        w_front = w * (1.0 + split)
-        w_rear = w * (1.0 - split)
-
         default_pos = np.asarray(self.default_pos, dtype=np.float32)
         self._wheel_vel_target = np.clip(
             np.array(
-                [
-                    w_front + common,
-                    -w_front + common,
-                    w_rear + common,
-                    -w_rear + common,
-                ],
+                [w + common, -w + common, w + common, -w + common],
                 dtype=np.float32,
             ),
             -self._pivot_wheel_cap,
