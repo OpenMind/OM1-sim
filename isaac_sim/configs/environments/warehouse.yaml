@@ -221,6 +221,19 @@ props:
       - [4.41, 23.70, 0.20]
       - [4.41, 24.50, 0.20]
 
+# Mezzanine for elevated-nav testing
+platforms:
+  - name: Mezzanine
+    center: [2.9, -20.9]
+    top_z: 1.0
+    size_xy: [4.0, 4.0]
+    thickness: 0.1
+    color: [0.85, 0.65, 0.13]
+    ramp:
+      direction: "-x"
+      run: 5.7        # slope = atan(top_z / run), ~10 deg; 14 deg made Go2 slip
+      width: 1.6
+
 remove_prims:
   - region: [-4.6, -1.2, 8.5, 15.0]
 
@@ -232,7 +245,7 @@ agents:
     turn_rate: 0.8
     pause: 2.0
     loop: true
-    waypoints: [[3.0, 6.0], [3.0, -18.0], [-22.0, -18.0], [-22.0, 6.0]]
+    waypoints: [[3.0, 6.0], [3.0, -16.0], [-22.0, -16.0], [-22.0, 6.0]]
 
   - name: Forklift2
     usd_isaac_relative: /Isaac/Props/Forklift/forklift.usd
