@@ -19,6 +19,7 @@ def add_environment(env_cfg) -> None:
     else:
         _add_warehouse(env_cfg)
     _add_props(env_cfg)
+    _add_platforms(env_cfg)
     _scale_scene_prims(env_cfg)
     _remove_scene_prims(env_cfg)
 
@@ -60,6 +61,114 @@ def _add_props(env_cfg) -> None:
                         UsdPhysics.RigidBodyAPI(child).CreateKinematicEnabledAttr(True)
         logger.info(
             "Spawned %d x %s from %s", len(prop.get("positions", [])), name, usd_path
+        )
+
+
+def _add_platforms(env_cfg) -> None:
+    """Spawn walkable slabs with optional access ramps (``platforms`` in the env config).
+
+    Each entry is a horizontal slab whose walking surface sits at ``top_z``;
+    an optional ``ramp`` block adds an incline whose top edge is flush with
+    the slab edge and whose bottom edge meets the ground, so only the height
+    and horizontal ``run`` need to be given (slope = atan(top_z / run)).
+    """
+    specs = getattr(env_cfg, "platforms", None)
+    if not specs:
+        return
+
+    import math
+
+    import omni.usd
+    from pxr import Gf, Sdf, UsdGeom, UsdPhysics, UsdShade
+
+    stage = omni.usd.get_context().get_stage()
+
+    material = UsdShade.Material.Define(stage, "/World/PlatformPhysicsMaterial")
+    phys_mat = UsdPhysics.MaterialAPI.Apply(material.GetPrim())
+    phys_mat.CreateStaticFrictionAttr(1.2)
+    phys_mat.CreateDynamicFrictionAttr(1.0)
+    material.GetPrim().CreateAttribute(
+        "physxMaterial:frictionCombineMode", Sdf.ValueTypeNames.Token
+    ).Set("max")
+
+    def _render_material(parent_path, color):
+        """Lit surface material (same pattern as the AprilTag dock body)."""
+        mat = UsdShade.Material.Define(stage, f"{parent_path}/RenderMaterial")
+        shader = UsdShade.Shader.Define(stage, f"{parent_path}/RenderMaterial/Shader")
+        shader.CreateIdAttr("UsdPreviewSurface")
+        shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(
+            Gf.Vec3f(*color)
+        )
+        shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.6)
+        shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.1)
+        shader.CreateOutput("surface", Sdf.ValueTypeNames.Token)
+        mat.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
+        return mat
+
+    def _make_box(path, color, render_mat):
+        cube = UsdGeom.Cube.Define(stage, path)
+        cube.CreateSizeAttr(1.0)
+        cube.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+        UsdPhysics.CollisionAPI.Apply(cube.GetPrim())
+        binding = UsdShade.MaterialBindingAPI.Apply(cube.GetPrim())
+        binding.Bind(material, materialPurpose="physics")
+        binding.Bind(render_mat)
+        return cube
+
+    directions = {
+        "+x": (1.0, 0.0),
+        "-x": (-1.0, 0.0),
+        "+y": (0.0, 1.0),
+        "-y": (0.0, -1.0),
+    }
+
+    for spec in specs:
+        name = spec.get("name", "Platform")
+        cx, cy = (float(v) for v in spec["center"])
+        top_z = float(spec["top_z"])
+        sx, sy = (float(v) for v in spec.get("size_xy", (4.0, 4.0)))
+        thickness = float(spec.get("thickness", 0.1))
+        color = tuple(spec.get("color", (0.45, 0.45, 0.5)))
+
+        stage.DefinePrim(f"/World/{name}", "Xform")
+        render_mat = _render_material(f"/World/{name}", color)
+        slab = _make_box(f"/World/{name}/Slab", color, render_mat)
+        xf = UsdGeom.Xformable(slab.GetPrim())
+        xf.AddTranslateOp().Set(Gf.Vec3d(cx, cy, top_z - thickness / 2.0))
+        xf.AddScaleOp().Set(Gf.Vec3f(sx, sy, thickness))
+
+        ramp = spec.get("ramp")
+        if not ramp:
+            logger.info("Platform %s: slab top z=%.2f (no ramp)", name, top_z)
+            continue
+
+        dx, dy = directions[ramp.get("direction", "+x")]
+        run = float(ramp["run"])
+        width = float(ramp.get("width", 1.6))
+        theta = math.atan2(top_z, run)
+        length = math.hypot(run, top_z)
+
+        # Centre the box on the incline midpoint, pushed half a thickness
+        # down the tilted surface normal so the top face runs slab-edge-to-ground.
+        half = sx / 2.0 if dx else sy / 2.0
+        offset = half + run / 2.0
+        sin_t, cos_t = math.sin(theta), math.cos(theta)
+        mx = cx + dx * (offset - sin_t * thickness / 2.0)
+        my = cy + dy * (offset - sin_t * thickness / 2.0)
+        mz = top_z / 2.0 - cos_t * thickness / 2.0
+
+        ramp_box = _make_box(f"/World/{name}/Ramp", color, render_mat)
+        xf = UsdGeom.Xformable(ramp_box.GetPrim())
+        xf.AddTranslateOp().Set(Gf.Vec3d(mx, my, mz))
+        xf.AddRotateZOp().Set(math.degrees(math.atan2(dy, dx)))
+        xf.AddRotateYOp().Set(math.degrees(theta))
+        xf.AddScaleOp().Set(Gf.Vec3f(length, width, thickness))
+        logger.info(
+            "Platform %s: slab top z=%.2f, ramp %.1f deg over %.1f m run",
+            name,
+            top_z,
+            math.degrees(theta),
+            run,
         )
 
 

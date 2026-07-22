@@ -127,6 +127,7 @@ class EnvironmentConfig:
     scale_prims: Optional[list] = None
     apriltag_dock: Optional[dict] = None
     remove_prims: Optional[list] = None
+    platforms: Optional[list] = None
 
     @property
     def usd_local_abs(self) -> Optional[str]:
@@ -206,6 +207,7 @@ def load_environment_config(env_type: str) -> EnvironmentConfig:
         scale_prims=data.get("scale_prims"),
         apriltag_dock=data.get("apriltag_dock"),
         remove_prims=data.get("remove_prims"),
+        platforms=data.get("platforms"),
     )
 
 
