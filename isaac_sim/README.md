@@ -55,3 +55,12 @@ source env_isaacsim/bin/activate
 python3 run.py --robot_type g1 # using default policy
 python3 run.py --robot_type g1 --policy_dir YOUR_POLICY_DIR # using your own policy
 ```
+
+### Optional Scene Elements
+
+Some environment features are disabled by default and must be opted into with a flag:
+
+```bash
+python3 run.py --vehicles   # enable scripted waypoint vehicles (forklifts/carts)
+python3 run.py --platforms  # enable elevated platforms/ramps (e.g. the warehouse mezzanine)
+```

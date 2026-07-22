@@ -727,6 +727,13 @@ def main():
         choices=sim_config.available_environment_types(),
         help="Scene to load (one per configs/environments/*.yaml)",
     )
+    parser.add_argument(
+        "--platforms",
+        action="store_true",
+        default=False,
+        help="Enable elevated platforms/ramps (e.g. the warehouse mezzanine) "
+        "from the environment config. Disabled by default.",
+    )
     args, _ = parser.parse_known_args()
 
     robot_cfg = sim_config.load_robot_config(args.robot_type)
@@ -744,6 +751,8 @@ def main():
             args.scan_source,
             "enabled" if robot_cfg.enable_2d_lidar else "disabled",
         )
+    if not args.platforms:
+        env_config.platforms = None
 
     logger.info("Running %s robot simulation", args.robot_type.upper())
 
