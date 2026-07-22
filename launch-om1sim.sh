@@ -53,6 +53,13 @@ fi
 
 ROBOT_TYPE=${ROBOT_TYPE:-go2}
 ENVIRONMENT_TYPE=${ENVIRONMENT_TYPE:-warehouse}
+PLATFORM_ENABLE=${PLATFORM_ENABLE:-false}
 
 cd /home/ubuntu/OM1-sim/isaac_sim
-exec python3 run.py --robot_type "$ROBOT_TYPE" --environment "$ENVIRONMENT_TYPE"
+
+EXTRA_ARGS=()
+if [ "$PLATFORM_ENABLE" = "true" ]; then
+    EXTRA_ARGS+=(--platforms)
+fi
+
+exec python3 run.py --robot_type "$ROBOT_TYPE" --environment "$ENVIRONMENT_TYPE" "${EXTRA_ARGS[@]}"
