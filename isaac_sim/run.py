@@ -477,7 +477,8 @@ class RobotRosRunner(object):
             cy=depth_cam.cy,
         )
 
-        ros_utils.setup_odom_publisher(simulation_app)
+        if self._robot_cfg.enable_odom:
+            ros_utils.setup_odom_publisher(simulation_app)
         ros_utils.setup_color_camera_publishers(
             self._sensors, simulation_app, self._robot_type
         )
@@ -519,7 +520,8 @@ class RobotRosRunner(object):
             quat_xyzw = [quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]]
 
             ros_utils.update_odom_tf(pos_w, quat_xyzw)
-            ros_utils.update_odom(pos_w, quat_xyzw, lin_vel, ang_vel)
+            if self._robot_cfg.enable_odom:
+                ros_utils.update_odom(pos_w, quat_xyzw, lin_vel, ang_vel)
         except Exception:
             return
 
