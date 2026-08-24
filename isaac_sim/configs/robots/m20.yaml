@@ -28,25 +28,19 @@ enable_2d_lidar: true
 
 pivot_assist: true
 
-# Sensor mount positions
 sensors:
   camera_link: [0.3, 0.0, 0.12]
   lidar_l1: [0.3, 0.0, 0.10]
   velodyne: [0.0, 0.0, 0.05]
 
-# 3D lidar units (replaces the single L1 lidar when set): one RTX lidar and
-# base -> frame_id static TF per entry. Mount poses mirror the real M20's
-# base_link -> lidar_{front,rear} static transforms (x/y/z + rpy) so the sim
-# TF tree matches the robot 1:1. The two clouds are merged into /lidar by the
-# om_common point_cloud_fusion node (see m20_sdk/sensor_launch.py).
 lidars_3d:
   - name: front
     frame_id: lidar_front
     topic: /lidar_points_front
     position: [0.32028, 0.0, -0.013]
-    rpy_deg: [0.0, -90.0, 180.0]
+    rpy_deg: [0.0, 35.0, 0.0]
   - name: rear
     frame_id: lidar_rear
     topic: /lidar_points_rear
     position: [-0.32028, 0.0, -0.013]
-    rpy_deg: [0.0, -90.0, 0.0]
+    rpy_deg: [0.0, -35.0, 0.0]

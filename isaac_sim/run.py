@@ -432,6 +432,10 @@ class RobotRosRunner(object):
         if self._render_dt:
             render_hz = 1.0 / self._render_dt
 
+        physics_hz = None
+        if self._physics_dt:
+            physics_hz = 1.0 / self._physics_dt
+
         camera_link_pos = self._robot_cfg.camera_link_pos
         lidar_l1_pos = self._robot_cfg.lidar_l1_pos
         lidar_velo_pos = self._robot_cfg.velodyne_pos
@@ -447,6 +451,7 @@ class RobotRosRunner(object):
             robot_type=self._robot_type,
             lidars_3d=lidars_3d,
             enable_2d_lidar=self._robot_cfg.enable_2d_lidar,
+            physics_hz=physics_hz,
         )
 
         # Additional render steps to initialize camera render products
@@ -494,6 +499,10 @@ class RobotRosRunner(object):
             fy=color_cam.fy,
             cx=color_cam.cx,
             cy=color_cam.cy,
+        )
+
+        ros_utils.setup_front_rgb_camerainfo_graph(
+            simulation_app, robot_type=self._robot_type
         )
 
         ros_utils.setup_joint_states_publisher(

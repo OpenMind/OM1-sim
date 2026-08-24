@@ -122,6 +122,94 @@ def ensure_link_xform(usd_stage, path: str, translation=None, rpy_rad=None):
     return prim
 
 
+FRONT_RGB_RESOLUTION = (640, 480)
+FRONT_RGB_FOCAL_LENGTH_MM = 24.0
+FRONT_RGB_HORIZONTAL_APERTURE_MM = 20.955
+
+REALSENSE_PITCH_DEG = -25.0
+FRONT_RGB_PITCH_DEG = 0.0
+TOP_RGB_PITCH_DEG = 30.0
+
+
+def camera_intrinsics_from_lens(
+    focal_length_mm: float,
+    horizontal_aperture_mm: float,
+    resolution: Tuple[int, int],
+) -> Tuple[int, int, float, float, float, float]:
+    """Pinhole intrinsics of a square-pixel USD camera: (w, h, fx, fy, cx, cy).
+
+    The RTX renderer fits the horizontal aperture to the render product's width
+    and derives the vertical extent from its aspect ratio, so fy == fx and the
+    principal point is the image centre.
+    """
+    width, height = resolution
+    fx = width * float(focal_length_mm) / float(horizontal_aperture_mm)
+    return width, height, fx, fx, width / 2.0, height / 2.0
+
+
+def set_camera_lens(
+    usd_stage,
+    path: str,
+    focal_length_mm: float,
+    horizontal_aperture_mm: float,
+    resolution: Tuple[int, int],
+) -> None:
+    """Pin a camera prim's lens so its intrinsics are explicit, not inherited.
+
+    A prim created by ``Camera(...)`` keeps the UsdGeomCamera schema fallbacks
+    (50 mm focal length), so any config that hard-codes fx/fy has to guess.
+    The vertical aperture is set from ``resolution`` so pixels are square, which
+    is what ``camera_intrinsics_from_lens`` assumes.
+    """
+    prim = usd_stage.GetPrimAtPath(path)
+    if not prim or not prim.IsValid():
+        logger.info(f"[WARN] set_camera_lens: no prim at {path}")
+        return
+    width, height = resolution
+    vertical_aperture_mm = horizontal_aperture_mm * float(height) / float(width)
+    prim.GetAttribute("focalLength").Set(float(focal_length_mm))
+    prim.GetAttribute("horizontalAperture").Set(float(horizontal_aperture_mm))
+    prim.GetAttribute("verticalAperture").Set(float(vertical_aperture_mm))
+    _, _, fx, _, cx, cy = camera_intrinsics_from_lens(
+        focal_length_mm, horizontal_aperture_mm, resolution
+    )
+    logger.info(
+        f"[Sensors] {path} lens: f={focal_length_mm} mm, "
+        f"aperture={horizontal_aperture_mm}x{vertical_aperture_mm:.5f} mm "
+        f"-> fx=fy={fx:.1f}, cx/cy={cx}/{cy}"
+    )
+
+
+def set_camera_pitch(usd_stage, path: str, pitch_deg: float, label: str) -> None:
+    """Aim a camera prim up or down within camera_link's vertical plane.
+
+    camera_link is oriented rpy (90, 0, -90), the USD camera convention: it looks
+    along base +X with up = base +Z, which puts its local X axis along base -Y.
+    A rotation about that local X is therefore a *pitch* about base +Y, and the
+    only rotation that aims a camera up or down without also swinging it
+    sideways. ``pitch_deg`` is positive up, negative down; 0 looks straight
+    ahead. Rotating about the local Y axis instead would yaw the camera left,
+    which is never what a front/top/down mount wants.
+    """
+    from pxr import Gf, UsdGeom
+
+    prim = usd_stage.GetPrimAtPath(path)
+    if not prim or not prim.IsValid():
+        logger.info(f"[WARN] set_camera_pitch: no prim at {path}")
+        return
+    xformable = UsdGeom.Xformable(prim)
+    xformable.ClearXformOpOrder()
+    xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
+    xformable.AddRotateXYZOp().Set(Gf.Vec3f(float(pitch_deg), 0.0, 0.0))
+    if pitch_deg > 0:
+        aim = f"{pitch_deg:g} deg above horizontal"
+    elif pitch_deg < 0:
+        aim = f"{-pitch_deg:g} deg below horizontal"
+    else:
+        aim = "straight ahead"
+    logger.info(f"[Sensors] Set {label} {aim}")
+
+
 def _create_rtx_lidar_pointcloud(
     usd_stage,
     link_prim: str,
@@ -203,6 +291,7 @@ def setup_sensors_delayed(
     robot_type: str = "go2",
     lidars_3d: Optional[list] = None,
     enable_2d_lidar: bool = True,
+    physics_hz: Optional[float] = None,
 ) -> dict:
     """Setup sensors after simulation is fully running.
 
@@ -210,7 +299,9 @@ def setup_sensors_delayed(
     (``sim_config.Lidar3DConfig``); when set it replaces the single L1 lidar
     with one RTX lidar per entry (e.g. the M20's front + back units).
     ``enable_2d_lidar`` gates the simulated RPLIDAR (-> /scan); robots that
-    derive /scan from their 3D clouds turn it off.
+    derive /scan from their 3D clouds turn it off. ``physics_hz`` is the physics
+    step rate; the IMU samples at that rate so its output is not the bottleneck
+    for the LIO/LIVO stacks, which want an IMU well above the LiDAR rate.
     """
     import omni.kit.commands
     import omni.replicator.core as rep
@@ -255,19 +346,12 @@ def setup_sensors_delayed(
         )
         realsense_depth_camera.initialize()
 
-        realsense_depth_cam_prim = usd_stage.GetPrimAtPath(REALSENSE_DEPTH_CAMERA_PRIM)
-        if realsense_depth_cam_prim and realsense_depth_cam_prim.IsValid():
-            from pxr import Gf, UsdGeom
-
-            xformable = UsdGeom.Xformable(realsense_depth_cam_prim)
-            xformable.ClearXformOpOrder()
-            xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
-            xformable.AddRotateXYZOp().Set(
-                Gf.Vec3f(-25.0, 0.0, 0.0)
-            )  # 25° downward tilt (X-axis)
-            logger.info(
-                "[Sensors] Set realsense_depth_camera 25° downward tilt, 5cm higher"
-            )
+        set_camera_pitch(
+            usd_stage,
+            REALSENSE_DEPTH_CAMERA_PRIM,
+            REALSENSE_PITCH_DEG,
+            "realsense_depth_camera",
+        )
 
         realsense_depth_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
         realsense_depth_camera.add_distance_to_image_plane_to_frame()
@@ -282,47 +366,39 @@ def setup_sensors_delayed(
         )
         realsense_rgb_camera.initialize()
 
-        realsense_rgb_cam_prim = usd_stage.GetPrimAtPath(REALSENSE_RGB_CAMERA_PRIM)
-        if realsense_rgb_cam_prim and realsense_rgb_cam_prim.IsValid():
-            from pxr import Gf, UsdGeom
-
-            xformable = UsdGeom.Xformable(realsense_rgb_cam_prim)
-            xformable.ClearXformOpOrder()
-            xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
-            xformable.AddRotateXYZOp().Set(
-                Gf.Vec3f(-25.0, 0.0, 0.0)
-            )  # 25° downward tilt (X-axis)
-            logger.info(
-                "[Sensors] Set realsense_rgb_camera 25° downward tilt, 5cm higher"
-            )
+        set_camera_pitch(
+            usd_stage,
+            REALSENSE_RGB_CAMERA_PRIM,
+            REALSENSE_PITCH_DEG,
+            "realsense_rgb_camera",
+        )
 
         realsense_rgb_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
         sensors["realsense_rgb_camera"] = realsense_rgb_camera
         logger.info("[Sensors] RealSense RGB camera initialized")
 
-        # add robot front camera
         robot_rgb_camera = Camera(
             prim_path=FRONT_RGB_CAMERA_PRIM,
             name=f"{robot_type}_rgb_camera",
-            resolution=(640, 480),
+            resolution=FRONT_RGB_RESOLUTION,
         )
         robot_rgb_camera.initialize()
 
-        robot_front_camera = usd_stage.GetPrimAtPath(FRONT_RGB_CAMERA_PRIM)
-        if robot_front_camera and robot_front_camera.IsValid():
-            from pxr import Gf, UsdGeom
-
-            xformable = UsdGeom.Xformable(robot_front_camera)
-            xformable.ClearXformOpOrder()
-            xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
-            xformable.AddRotateXYZOp().Set(
-                Gf.Vec3f(0.0, 25.0, 0.0)
-            )  # Counteract camera_link's -25° tilt
-            logger.info(
-                f"[Sensors] Set {robot_type}_rgb_camera to face forward (counteracting camera_link tilt)"
-            )
+        set_camera_pitch(
+            usd_stage,
+            FRONT_RGB_CAMERA_PRIM,
+            FRONT_RGB_PITCH_DEG,
+            f"{robot_type}_rgb_camera",
+        )
 
         robot_rgb_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
+        set_camera_lens(
+            usd_stage,
+            FRONT_RGB_CAMERA_PRIM,
+            focal_length_mm=FRONT_RGB_FOCAL_LENGTH_MM,
+            horizontal_aperture_mm=FRONT_RGB_HORIZONTAL_APERTURE_MM,
+            resolution=FRONT_RGB_RESOLUTION,
+        )
         sensors["robot_front_rgb_camera"] = robot_rgb_camera
         logger.info(f"[Sensors] {robot_type.upper()} front RGB camera initialized")
 
@@ -334,17 +410,12 @@ def setup_sensors_delayed(
         )
         robot_top_camera.initialize()
 
-        robot_top_cam_prim = usd_stage.GetPrimAtPath(TOP_RGB_CAMERA_PRIM)
-        if robot_top_cam_prim and robot_top_cam_prim.IsValid():
-            from pxr import Gf, UsdGeom
-
-            xformable = UsdGeom.Xformable(robot_top_cam_prim)
-            xformable.ClearXformOpOrder()
-            xformable.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, 0.0))
-            xformable.AddRotateXYZOp().Set(Gf.Vec3f(0.0, 55.0, 0.0))
-            logger.info(
-                f"[Sensors] Set {robot_type}_top_rgb_camera at 30° from horizontal"
-            )
+        set_camera_pitch(
+            usd_stage,
+            TOP_RGB_CAMERA_PRIM,
+            TOP_RGB_PITCH_DEG,
+            f"{robot_type}_top_rgb_camera",
+        )
 
         robot_top_camera.set_clipping_range(near_distance=0.1, far_distance=100.0)
         sensors["robot_top_rgb_camera"] = robot_top_camera
@@ -359,16 +430,17 @@ def setup_sensors_delayed(
 
     # --- IMU ---
     try:
+        imu_hz = int(round(physics_hz)) if physics_hz else 200
         imu_sensor = IMUSensor(
             prim_path=IMU_PRIM,
             name="imu_sensor",
-            frequency=50,
+            frequency=imu_hz,
             translation=np.array([0.0, 0.0, 0.0]),
             orientation=np.array([1.0, 0.0, 0.0, 0.0]),
         )
         imu_sensor.initialize()
         sensors["imu"] = imu_sensor
-        logger.info("[Sensors] IMU initialized")
+        logger.info(f"[Sensors] IMU initialized at {imu_hz} Hz")
     except Exception as e:
         logger.info(f"[WARN] IMU setup failed: {e}")
 
@@ -485,14 +557,22 @@ def setup_static_tfs(
     velodyne_pos=(0.25, 0.0, 0.13),
     lidars_3d=None,
     enable_2d_lidar=True,
+    robot_type: str = "go2",
 ) -> None:
     """Publish static TFs for sensor frames to complete the TF tree.
 
     Sensor mount positions are passed in (from the robot config) so the TF
-    tree matches each robot's actual sensor placement. The camera quaternion,
-    velodyne laser offset and RGB offset are fixed sensor-internal geometry.
-    When ``lidars_3d`` is set, one ``base -> frame_id`` transform is published
-    per 3D lidar unit instead of the single ``lidar_l1_link``.
+    tree matches each robot's actual sensor placement. The camera_link
+    quaternion and the velodyne laser offset are fixed sensor-internal
+    geometry; each camera's own rotation comes from the *_PITCH_DEG constants,
+    the same ones that orient its prim. When ``lidars_3d`` is set, one
+    ``base -> frame_id`` transform is published per 3D lidar unit instead of the
+    single ``lidar_l1_link``.
+
+    Every frame gets exactly one parent. ``realsense_depth_camera`` used to be
+    published under both ``camera_link`` and ``base_link``, which is not a tree;
+    the ``base_link`` edge was also the un-pitched one. It is gone - the pose is
+    still reachable as base_link -> base -> camera_link -> realsense_depth_camera.
     """
     import omni.graph.core as og
     from isaacsim.core.utils.prims import is_prim_path_valid
@@ -507,6 +587,7 @@ def setup_static_tfs(
     velo = [float(v) for v in velodyne_pos]
     cam_quat = [0.5, -0.5, -0.5, 0.5]
     identity = [0.0, 0.0, 0.0, 1.0]
+    realsense_quat = quat_xyzw_from_rpy_deg(REALSENSE_PITCH_DEG, 0.0, 0.0)
 
     if lidars_3d:
         lidar_tfs = [
@@ -536,9 +617,35 @@ def setup_static_tfs(
         *velo_tfs,
         ("base", "imu_link", [0.0, 0.0, 0.0], identity),
         ("base", "camera_link", cam, cam_quat),
-        ("camera_link", "realsense_depth_camera", [0.0, 0.0, 0.0], identity),
-        ("camera_link", "realsense_rgb_camera", [0.0, 0.05, 0.0], identity),
-        ("base_link", "realsense_depth_camera", cam, cam_quat),
+        # One entry per camera prim created in setup_sensors_delayed, each with
+        # the same pitch that prim was given and at the prim's own origin. The
+        # front and top cameras had no frame at all, so the CameraInfo published
+        # for them named a frame nothing could look up; the RealSense pair had a
+        # frame but with the pitch dropped.
+        (
+            "camera_link",
+            "realsense_depth_camera",
+            [0.0, 0.0, 0.0],
+            realsense_quat,
+        ),
+        (
+            "camera_link",
+            "realsense_rgb_camera",
+            [0.0, 0.0, 0.0],
+            realsense_quat,
+        ),
+        (
+            "camera_link",
+            f"{robot_type}_rgb_camera",
+            [0.0, 0.0, 0.0],
+            quat_xyzw_from_rpy_deg(FRONT_RGB_PITCH_DEG, 0.0, 0.0),
+        ),
+        (
+            "camera_link",
+            f"{robot_type}_top_rgb_camera",
+            [0.0, 0.0, 0.0],
+            quat_xyzw_from_rpy_deg(TOP_RGB_PITCH_DEG, 0.0, 0.0),
+        ),
     ]
 
     create_nodes = [
@@ -759,24 +866,31 @@ def setup_color_camera_publishers(
                 )
 
 
-def setup_color_camerainfo_graph(
+def setup_camerainfo_graph(
     simulation_app,
-    topic="/camera/realsense2_camera_node/color/camera_info",
-    frame_id="realsense_depth_camera",
-    width=424,
-    height=240,
-    fx=320.0,
-    fy=320.0,
-    cx=None,
-    cy=None,
+    graph_path: str,
+    label: str,
+    topic: str,
+    frame_id: str,
+    width: int,
+    height: int,
+    fx: float,
+    fy: float,
+    cx: Optional[float] = None,
+    cy: Optional[float] = None,
 ) -> bool:
-    """Publish CameraInfo for color camera."""
+    """Publish a static sensor_msgs/CameraInfo for one rendered camera.
+
+    The RTX camera writers publish only the image, never a CameraInfo, so every
+    stream that a downstream node needs to project has to get one from here.
+    The intrinsics are constant, so a single graph re-stamped each tick is
+    enough. ``cx``/``cy`` default to the image centre.
+    """
     import omni.graph.core as og
     from isaacsim.core.utils.prims import is_prim_path_valid
 
-    graph_path = "/ColorCameraInfoGraph"
     if is_prim_path_valid(graph_path):
-        logger.info("[ROS2] Color CameraInfo graph already exists")
+        logger.info(f"[ROS2] {label} CameraInfo graph already exists")
         return True
 
     if cx is None:
@@ -825,9 +939,66 @@ def setup_color_camerainfo_graph(
         },
     )
 
-    logger.info(f"[ROS2] Color CameraInfo -> {topic}")
+    logger.info(
+        f"[ROS2] {label} CameraInfo -> {topic} (frame_id={frame_id}, "
+        f"{width}x{height}, fx={fx:.1f}, fy={fy:.1f}, cx={cx}, cy={cy})"
+    )
     simulation_app.update()
     return True
+
+
+def setup_color_camerainfo_graph(
+    simulation_app,
+    topic="/camera/realsense2_camera_node/color/camera_info",
+    frame_id="realsense_depth_camera",
+    width=424,
+    height=240,
+    fx=320.0,
+    fy=320.0,
+    cx=None,
+    cy=None,
+) -> bool:
+    """Publish CameraInfo for the RealSense color camera."""
+    return setup_camerainfo_graph(
+        simulation_app,
+        graph_path="/ColorCameraInfoGraph",
+        label="Color",
+        topic=topic,
+        frame_id=frame_id,
+        width=width,
+        height=height,
+        fx=fx,
+        fy=fy,
+        cx=cx,
+        cy=cy,
+    )
+
+
+def setup_front_rgb_camerainfo_graph(simulation_app, robot_type: str = "go2") -> bool:
+    """Publish CameraInfo for the robot's front RGB camera.
+
+    Same lens constants the prim was pinned with, so /camera/<robot>/camera_info
+    always agrees with /camera/<robot>/image_raw. Nothing published this before,
+    which left the topic empty for every consumer that needed to project it.
+    """
+    width, height, fx, fy, cx, cy = camera_intrinsics_from_lens(
+        FRONT_RGB_FOCAL_LENGTH_MM,
+        FRONT_RGB_HORIZONTAL_APERTURE_MM,
+        FRONT_RGB_RESOLUTION,
+    )
+    return setup_camerainfo_graph(
+        simulation_app,
+        graph_path="/FrontRgbCameraInfoGraph",
+        label=f"{robot_type.upper()} front RGB",
+        topic=f"/camera/{robot_type}/camera_info",
+        frame_id=f"{robot_type}_rgb_camera",
+        width=width,
+        height=height,
+        fx=fx,
+        fy=fy,
+        cx=cx,
+        cy=cy,
+    )
 
 
 def setup_joint_states_publisher(
@@ -883,6 +1054,75 @@ def setup_joint_states_publisher(
     simulation_app.update()
 
 
+_IMU_TICK_CANDIDATES = (
+    ("omni.physx.graph.OnPhysicsStep", "step"),
+    ("omni.graph.action.OnPhysicsStep", "step"),
+    ("omni.graph.action.OnTick", "tick"),
+)
+
+
+def _create_imu_graph(graph_path: str, imu_prim: str, topic: str, frame_id: str) -> str:
+    """Build the IMU read/publish graph, ticked per physics step where possible.
+
+    Returns the node type used as the trigger, or "" if none of the candidates
+    could be instantiated.
+    """
+    import omni.graph.core as og
+    from isaacsim.core.nodes.scripts.utils import set_target_prims
+    from isaacsim.core.utils.prims import delete_prim, is_prim_path_valid
+
+    for tick_type, tick_out in _IMU_TICK_CANDIDATES:
+        try:
+            og.Controller.edit(
+                {
+                    "graph_path": graph_path,
+                    "evaluator_name": "execution",
+                    "pipeline_stage": (
+                        og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION
+                    ),
+                },
+                {
+                    og.Controller.Keys.CREATE_NODES: [
+                        ("Tick", tick_type),
+                        ("Clock", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+                        ("Ctx", "isaacsim.ros2.bridge.ROS2Context"),
+                        ("Read", "isaacsim.sensors.physics.IsaacReadIMU"),
+                        ("Pub", "isaacsim.ros2.bridge.ROS2PublishImu"),
+                    ],
+                    og.Controller.Keys.CONNECT: [
+                        (f"Tick.outputs:{tick_out}", "Read.inputs:execIn"),
+                        (f"Tick.outputs:{tick_out}", "Pub.inputs:execIn"),
+                        ("Ctx.outputs:context", "Pub.inputs:context"),
+                        ("Clock.outputs:simulationTime", "Pub.inputs:timeStamp"),
+                        ("Read.outputs:angVel", "Pub.inputs:angularVelocity"),
+                        ("Read.outputs:linAcc", "Pub.inputs:linearAcceleration"),
+                        ("Read.outputs:orientation", "Pub.inputs:orientation"),
+                    ],
+                    og.Controller.Keys.SET_VALUES: [
+                        ("Ctx.inputs:useDomainIDEnvVar", True),
+                        ("Read.inputs:readGravity", True),
+                        ("Read.inputs:useLatestData", True),
+                        ("Pub.inputs:frameId", frame_id),
+                        ("Pub.inputs:topicName", topic),
+                        ("Pub.inputs:queueSize", 10),
+                    ],
+                },
+            )
+        except Exception as e:
+            logger.info(f"[WARN] IMU graph trigger {tick_type} unavailable: {e}")
+            if is_prim_path_valid(graph_path):
+                delete_prim(graph_path)
+            continue
+        set_target_prims(
+            primPath=f"{graph_path}/Read",
+            inputName="inputs:imuPrim",
+            targetPrimPaths=[imu_prim],
+        )
+        return tick_type
+    logger.info("[WARN] IMU graph could not be created; /imu will be silent")
+    return ""
+
+
 def setup_ros_publishers(
     sensors,
     simulation_app,
@@ -899,7 +1139,6 @@ def setup_ros_publishers(
     import omni.replicator.core as rep
     import omni.syntheticdata as syn_data
     import omni.syntheticdata._syntheticdata as sd
-    from isaacsim.core.nodes.scripts.utils import set_target_prims
     from isaacsim.core.utils.prims import is_prim_path_valid
 
     # Clock publisher
@@ -926,45 +1165,14 @@ def setup_ros_publishers(
     logger.info("[ROS2] Clock publisher -> /clock")
 
     if not is_prim_path_valid("/ImuGraph"):
-        og.Controller.edit(
-            {
-                "graph_path": "/ImuGraph",
-                "evaluator_name": "execution",
-                "pipeline_stage": og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION,
-            },
-            {
-                og.Controller.Keys.CREATE_NODES: [
-                    ("OnTick", "omni.graph.action.OnTick"),
-                    ("Clock", "isaacsim.core.nodes.IsaacReadSimulationTime"),
-                    ("Ctx", "isaacsim.ros2.bridge.ROS2Context"),
-                    ("Read", "isaacsim.sensors.physics.IsaacReadIMU"),
-                    ("Pub", "isaacsim.ros2.bridge.ROS2PublishImu"),
-                ],
-                og.Controller.Keys.CONNECT: [
-                    ("OnTick.outputs:tick", "Read.inputs:execIn"),
-                    ("OnTick.outputs:tick", "Pub.inputs:execIn"),
-                    ("Ctx.outputs:context", "Pub.inputs:context"),
-                    ("Clock.outputs:simulationTime", "Pub.inputs:timeStamp"),
-                    ("Read.outputs:angVel", "Pub.inputs:angularVelocity"),
-                    ("Read.outputs:linAcc", "Pub.inputs:linearAcceleration"),
-                    ("Read.outputs:orientation", "Pub.inputs:orientation"),
-                ],
-                og.Controller.Keys.SET_VALUES: [
-                    ("Ctx.inputs:useDomainIDEnvVar", True),
-                    ("Read.inputs:readGravity", True),
-                    ("Read.inputs:useLatestData", True),
-                    ("Pub.inputs:frameId", "imu_link"),
-                    ("Pub.inputs:topicName", "/imu"),
-                    ("Pub.inputs:queueSize", 10),
-                ],
-            },
+        tick_type = _create_imu_graph("/ImuGraph", IMU_PRIM, "/imu", "imu_link")
+        rate = "physics rate" if "PhysicsStep" in tick_type else "render rate"
+        logger.info(
+            f"[ROS2] IMU publisher -> /imu at {rate} via {tick_type or 'nothing'} "
+            f"(imu prim: {IMU_PRIM})"
         )
-        set_target_prims(
-            primPath="/ImuGraph/Read",
-            inputName="inputs:imuPrim",
-            targetPrimPaths=[IMU_PRIM],
-        )
-    logger.info(f"[ROS2] IMU publisher -> /imu (imu prim: {IMU_PRIM})")
+    else:
+        logger.info(f"[ROS2] IMU publisher -> /imu (imu prim: {IMU_PRIM})")
 
     # Camera publishers with CameraInfo
     if sensors.get("realsense_depth_camera"):
@@ -1019,6 +1227,7 @@ def setup_ros_publishers(
         lidar_l1_pos=lidar_l1_pos or (0.3, 0.0, 0.08),
         velodyne_pos=lidar_velo_pos or (0.25, 0.0, 0.13),
         lidars_3d=lidars_3d,
+        robot_type=robot_type,
         enable_2d_lidar=enable_2d_lidar,
     )
 
@@ -1076,73 +1285,20 @@ def setup_depth_camerainfo_graph(
     cx=None,
     cy=None,
 ) -> bool:
-    """
-    Publish depth CameraInfo.
-    """
-    import omni.graph.core as og
-    from isaacsim.core.utils.prims import is_prim_path_valid
-
-    graph_path = "/DepthCameraInfoGraph"
-    if is_prim_path_valid(graph_path):
-        logger.info("[ROS2] Depth CameraInfo graph already exists")
-        return True
-
-    if cx is None:
-        cx = width / 2.0
-    if cy is None:
-        cy = height / 2.0
-
-    # K matrix (3x3 intrinsic matrix, row-major)
-    K = [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]
-
-    # R matrix (3x3 rectification matrix, identity for monocular)
-    R = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-
-    # P matrix (3x4 projection matrix)
-    P = [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]
-
-    og.Controller.edit(
-        {
-            "graph_path": graph_path,
-            "evaluator_name": "execution",
-            "pipeline_stage": og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION,
-        },
-        {
-            og.Controller.Keys.CREATE_NODES: [
-                ("OnTick", "omni.graph.action.OnTick"),
-                ("Clock", "isaacsim.core.nodes.IsaacReadSimulationTime"),
-                ("Ctx", "isaacsim.ros2.bridge.ROS2Context"),
-                ("Pub", "isaacsim.ros2.bridge.ROS2PublishCameraInfo"),
-            ],
-            og.Controller.Keys.CONNECT: [
-                ("OnTick.outputs:tick", "Pub.inputs:execIn"),
-                ("Clock.outputs:simulationTime", "Pub.inputs:timeStamp"),
-                ("Ctx.outputs:context", "Pub.inputs:context"),
-            ],
-            og.Controller.Keys.SET_VALUES: [
-                ("Ctx.inputs:useDomainIDEnvVar", True),
-                ("Pub.inputs:topicName", topic),
-                ("Pub.inputs:frameId", frame_id),
-                ("Pub.inputs:queueSize", 10),
-                ("Pub.inputs:width", width),
-                ("Pub.inputs:height", height),
-                ("Pub.inputs:k", K),
-                ("Pub.inputs:r", R),
-                ("Pub.inputs:p", P),
-                ("Pub.inputs:physicalDistortionModel", "plumb_bob"),
-                (
-                    "Pub.inputs:physicalDistortionCoefficients",
-                    [0.0, 0.0, 0.0, 0.0, 0.0],
-                ),
-            ],
-        },
+    """Publish CameraInfo for the RealSense depth camera."""
+    return setup_camerainfo_graph(
+        simulation_app,
+        graph_path="/DepthCameraInfoGraph",
+        label="Depth",
+        topic=topic,
+        frame_id=frame_id,
+        width=width,
+        height=height,
+        fx=fx,
+        fy=fy,
+        cx=cx,
+        cy=cy,
     )
-
-    logger.info(
-        f"[ROS2] Depth CameraInfo -> {topic} (width={width}, height={height}, fx={fx}, fy={fy})"
-    )
-    simulation_app.update()
-    return True
 
 
 def update_odom_tf(pos, quat_xyzw) -> None:
