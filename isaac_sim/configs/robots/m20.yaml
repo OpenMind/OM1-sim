@@ -20,6 +20,8 @@ apartment_height: 0.55
 usd_relative: assets/m20/usd/M20.usd
 isaac_fallback_usd: null
 
+enable_odom: false
+
 enable_lidar: true
 
 enable_2d_lidar: true

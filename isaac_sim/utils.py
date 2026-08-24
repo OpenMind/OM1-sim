@@ -892,6 +892,7 @@ def setup_ros_publishers(
     lidar_velo_pos: Optional[Tuple[float, float, float]] = None,
     lidars_3d: Optional[list] = None,
     enable_2d_lidar: bool = True,
+    enable_odom: bool = True,
 ) -> None:
     """Setup ROS2 publishers for sensors."""
     import omni.graph.core as og
@@ -1021,8 +1022,13 @@ def setup_ros_publishers(
         enable_2d_lidar=enable_2d_lidar,
     )
 
-    # Odom TF publisher (dynamic - updated each frame)
+    # Odom TF publisher (dynamic - updated each frame).
     global odom_tf_trans_attr, odom_tf_rot_attr
+    if not enable_odom:
+        logger.info("[ROS2] Odom TF disabled (enable_odom=false)")
+        simulation_app.update()
+        return
+
     if not is_prim_path_valid(odom_graph_path):
         og.Controller.edit(
             {
