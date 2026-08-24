@@ -71,6 +71,14 @@ def _add_platforms(env_cfg) -> None:
     an optional ``ramp`` block adds an incline whose top edge is flush with
     the slab edge and whose bottom edge meets the ground, so only the height
     and horizontal ``run`` need to be given (slope = atan(top_z / run)).
+
+    These optional structural blocks use the ``concrete_color`` finish rather
+    than the deck ``color``:
+
+    * ``skirt`` - walls closing the space under the slab (ground to underside).
+    * ``deck_walls`` - parapet around the deck top, left open where the ramp lands.
+    * ``ramp.walls`` - kerb walls up both sides of the incline (they tilt with it).
+    * ``ramp.fill`` - solid prism filling the void under the incline.
     """
     specs = getattr(env_cfg, "platforms", None)
     if not specs:
@@ -91,10 +99,10 @@ def _add_platforms(env_cfg) -> None:
         "physxMaterial:frictionCombineMode", Sdf.ValueTypeNames.Token
     ).Set("max")
 
-    def _render_material(parent_path, color):
+    def _render_material(parent_path, color, mat_name="RenderMaterial"):
         """Lit surface material (same pattern as the AprilTag dock body)."""
-        mat = UsdShade.Material.Define(stage, f"{parent_path}/RenderMaterial")
-        shader = UsdShade.Shader.Define(stage, f"{parent_path}/RenderMaterial/Shader")
+        mat = UsdShade.Material.Define(stage, f"{parent_path}/{mat_name}")
+        shader = UsdShade.Shader.Define(stage, f"{parent_path}/{mat_name}/Shader")
         shader.CreateIdAttr("UsdPreviewSurface")
         shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).Set(
             Gf.Vec3f(*color)
@@ -105,7 +113,9 @@ def _add_platforms(env_cfg) -> None:
         mat.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
         return mat
 
-    def _make_box(path, color, render_mat):
+    def _make_box(
+        path, color, render_mat, translate, scale, yaw_deg=None, pitch_deg=None
+    ):
         cube = UsdGeom.Cube.Define(stage, path)
         cube.CreateSizeAttr(1.0)
         cube.CreateDisplayColorAttr([Gf.Vec3f(*color)])
@@ -113,7 +123,50 @@ def _add_platforms(env_cfg) -> None:
         binding = UsdShade.MaterialBindingAPI.Apply(cube.GetPrim())
         binding.Bind(material, materialPurpose="physics")
         binding.Bind(render_mat)
+        xf = UsdGeom.Xformable(cube.GetPrim())
+        xf.AddTranslateOp().Set(Gf.Vec3d(*translate))
+        if yaw_deg is not None:
+            xf.AddRotateZOp().Set(yaw_deg)
+        if pitch_deg is not None:
+            xf.AddRotateYOp().Set(pitch_deg)
+        xf.AddScaleOp().Set(Gf.Vec3f(*scale))
         return cube
+
+    def _make_wedge(path, color, render_mat, points):
+        """Triangular-prism mesh from 6 world-space points (see the caller)."""
+        mesh = UsdGeom.Mesh.Define(stage, path)
+        mesh.CreatePointsAttr([Gf.Vec3f(*p) for p in points])
+        mesh.CreateFaceVertexCountsAttr([3, 3, 4, 4, 4])
+        mesh.CreateFaceVertexIndicesAttr(
+            [0, 1, 2]  # +lateral triangular face
+            + [3, 5, 4]  # -lateral triangular face
+            + [0, 2, 5, 3]  # ground
+            + [1, 0, 3, 4]  # vertical face against the deck
+            + [2, 1, 4, 5]  # slanted face against the ramp underside
+        )
+        mesh.CreateSubdivisionSchemeAttr("none")
+        mesh.CreateDoubleSidedAttr(True)
+        mesh.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+        UsdPhysics.CollisionAPI.Apply(mesh.GetPrim())
+        UsdPhysics.MeshCollisionAPI.Apply(mesh.GetPrim()).CreateApproximationAttr(
+            "convexHull"
+        )
+        binding = UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim())
+        binding.Bind(material, materialPurpose="physics")
+        binding.Bind(render_mat)
+        return mesh
+
+    def _segments(center, span, gap):
+        """Split a deck edge into wall runs, leaving a centred ``gap`` for the ramp."""
+        if gap <= 0.0:
+            return [(center, span)]
+        if gap >= span:
+            return []
+        seg = (span - gap) / 2.0
+        return [
+            (center - (span + gap) / 4.0, seg),
+            (center + (span + gap) / 4.0, seg),
+        ]
 
     directions = {
         "+x": (1.0, 0.0),
@@ -129,46 +182,152 @@ def _add_platforms(env_cfg) -> None:
         sx, sy = (float(v) for v in spec.get("size_xy", (4.0, 4.0)))
         thickness = float(spec.get("thickness", 0.1))
         color = tuple(spec.get("color", (0.45, 0.45, 0.5)))
+        concrete = tuple(spec.get("concrete_color", (0.62, 0.62, 0.60)))
 
         stage.DefinePrim(f"/World/{name}", "Xform")
         render_mat = _render_material(f"/World/{name}", color)
-        slab = _make_box(f"/World/{name}/Slab", color, render_mat)
-        xf = UsdGeom.Xformable(slab.GetPrim())
-        xf.AddTranslateOp().Set(Gf.Vec3d(cx, cy, top_z - thickness / 2.0))
-        xf.AddScaleOp().Set(Gf.Vec3f(sx, sy, thickness))
+        concrete_mat = _render_material(f"/World/{name}", concrete, "ConcreteMaterial")
 
         ramp = spec.get("ramp")
+        kerb = ramp.get("walls") if ramp else None
+        kerb_t = float(kerb.get("thickness", 0.12)) if kerb else 0.0
+        landing = None
+        if ramp:
+            dx, dy = directions[ramp.get("direction", "+x")]
+            run = float(ramp["run"])
+            width = float(ramp.get("width", 1.6))
+            theta = math.atan2(top_z, run)
+            length = math.hypot(run, top_z)
+            sin_t, cos_t = math.sin(theta), math.cos(theta)
+            yaw_deg = math.degrees(math.atan2(dy, dx))
+            pitch_deg = math.degrees(theta)
+            half = sx / 2.0 if dx else sy / 2.0
+            offset = half + run / 2.0
+            landing = ((dx, dy), width + 2.0 * kerb_t)
+
+        _make_box(
+            f"/World/{name}/Slab",
+            color,
+            render_mat,
+            (cx, cy, top_z - thickness / 2.0),
+            (sx, sy, thickness),
+        )
+
+        skirt = spec.get("skirt")
+        skirt_h = top_z - thickness
+        if skirt and skirt_h > 1e-3:
+            st = float(skirt.get("thickness", 0.2))
+            for sign, tag in ((1.0, "XPos"), (-1.0, "XNeg")):
+                _make_box(
+                    f"/World/{name}/Skirt{tag}",
+                    concrete,
+                    concrete_mat,
+                    (cx + sign * (sx - st) / 2.0, cy, skirt_h / 2.0),
+                    (st, sy, skirt_h),
+                )
+            for sign, tag in ((1.0, "YPos"), (-1.0, "YNeg")):
+                _make_box(
+                    f"/World/{name}/Skirt{tag}",
+                    concrete,
+                    concrete_mat,
+                    (cx, cy + sign * (sy - st) / 2.0, skirt_h / 2.0),
+                    (max(sx - 2.0 * st, st), st, skirt_h),
+                )
+
+        deck_walls = spec.get("deck_walls")
+        if deck_walls:
+            dh = float(deck_walls.get("height", 0.6))
+            dt = float(deck_walls.get("thickness", 0.12))
+            zc = top_z + dh / 2.0
+            for sign, tag in ((1.0, "XPos"), (-1.0, "XNeg")):
+                gap = landing[1] if landing and landing[0] == (sign, 0.0) else 0.0
+                for i, (c, ln) in enumerate(_segments(cy, sy, gap)):
+                    _make_box(
+                        f"/World/{name}/DeckWall{tag}_{i}",
+                        concrete,
+                        concrete_mat,
+                        (cx + sign * (sx - dt) / 2.0, c, zc),
+                        (dt, ln, dh),
+                    )
+            for sign, tag in ((1.0, "YPos"), (-1.0, "YNeg")):
+                gap = landing[1] if landing and landing[0] == (0.0, sign) else 0.0
+                for i, (c, ln) in enumerate(_segments(cx, sx - 2.0 * dt, gap)):
+                    _make_box(
+                        f"/World/{name}/DeckWall{tag}_{i}",
+                        concrete,
+                        concrete_mat,
+                        (c, cy + sign * (sy - dt) / 2.0, zc),
+                        (ln, dt, dh),
+                    )
+
         if not ramp:
             logger.info("Platform %s: slab top z=%.2f (no ramp)", name, top_z)
             continue
 
-        dx, dy = directions[ramp.get("direction", "+x")]
-        run = float(ramp["run"])
-        width = float(ramp.get("width", 1.6))
-        theta = math.atan2(top_z, run)
-        length = math.hypot(run, top_z)
-
-        # Centre the box on the incline midpoint, pushed half a thickness
-        # down the tilted surface normal so the top face runs slab-edge-to-ground.
-        half = sx / 2.0 if dx else sy / 2.0
-        offset = half + run / 2.0
-        sin_t, cos_t = math.sin(theta), math.cos(theta)
         mx = cx + dx * (offset - sin_t * thickness / 2.0)
         my = cy + dy * (offset - sin_t * thickness / 2.0)
         mz = top_z / 2.0 - cos_t * thickness / 2.0
 
-        ramp_box = _make_box(f"/World/{name}/Ramp", color, render_mat)
-        xf = UsdGeom.Xformable(ramp_box.GetPrim())
-        xf.AddTranslateOp().Set(Gf.Vec3d(mx, my, mz))
-        xf.AddRotateZOp().Set(math.degrees(math.atan2(dy, dx)))
-        xf.AddRotateYOp().Set(math.degrees(theta))
-        xf.AddScaleOp().Set(Gf.Vec3f(length, width, thickness))
+        _make_box(
+            f"/World/{name}/Ramp",
+            concrete,
+            concrete_mat,
+            (mx, my, mz),
+            (length, width, thickness),
+            yaw_deg,
+            pitch_deg,
+        )
+
+        lx, ly = -dy, dx
+        nx, ny, nz = dx * sin_t, dy * sin_t, cos_t
+
+        if kerb:
+            wh = float(kerb.get("height", 0.6))
+            ux, uy, uz = cx + dx * offset, cy + dy * offset, top_z / 2.0
+            for sign, tag in ((1.0, "Left"), (-1.0, "Right")):
+                lat = sign * (width + kerb_t) / 2.0
+                _make_box(
+                    f"/World/{name}/RampWall{tag}",
+                    concrete,
+                    concrete_mat,
+                    (
+                        ux + lx * lat + nx * wh / 2.0,
+                        uy + ly * lat + ny * wh / 2.0,
+                        uz + nz * wh / 2.0,
+                    ),
+                    (length, kerb_t, wh),
+                    yaw_deg,
+                    pitch_deg,
+                )
+
+        fill_h = top_z - thickness / cos_t
+        fill_run = run - thickness / sin_t
+        if ramp.get("fill") and fill_h > 1e-3 and fill_run > 1e-3:
+            ex, ey = cx + dx * half, cy + dy * half  # deck edge at the ramp
+            hw = width / 2.0 + kerb_t  # flush with the kerb walls' outer faces
+            pts = []
+            for sign in (1.0, -1.0):
+                bx, by = ex + lx * sign * hw, ey + ly * sign * hw
+                pts += [
+                    (bx, by, 0.0),  # ground, at the deck face
+                    (bx, by, fill_h),  # underside, at the deck face
+                    (bx + dx * fill_run, by + dy * fill_run, 0.0),  # ground, downhill
+                ]
+            _make_wedge(f"/World/{name}/RampFill", concrete, concrete_mat, pts)
+
         logger.info(
-            "Platform %s: slab top z=%.2f, ramp %.1f deg over %.1f m run",
+            "Platform %s: deck %.1fx%.1f top z=%.2f, ramp %.1f deg over %.1f m run"
+            " (deck_walls=%s, kerb=%s, skirt=%s, fill=%s)",
             name,
+            sx,
+            sy,
             top_z,
-            math.degrees(theta),
+            pitch_deg,
             run,
+            bool(deck_walls),
+            bool(kerb),
+            bool(skirt),
+            bool(ramp.get("fill")),
         )
 
 
