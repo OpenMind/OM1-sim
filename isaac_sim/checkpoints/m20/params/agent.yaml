@@ -7,13 +7,13 @@ obs_groups: {}
 clip_actions: 100
 check_for_nan: true
 save_interval: 100
-experiment_name: deeprobotics_m20_spinlearn3
+experiment_name: deeprobotics_m20_spinlearn5
 run_name: ''
 logger: tensorboard
 neptune_project: isaaclab
 wandb_project: isaaclab
 resume: true
-load_run: 2026-07-19_04-05-44
+load_run: 2026-07-27_14-54-11
 load_checkpoint: model_10998.pt
 class_name: OnPolicyRunner
 actor:
