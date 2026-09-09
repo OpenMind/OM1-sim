@@ -48,6 +48,8 @@ LEG_ACTION_SCALE = np.array(
 )
 WHEEL_ACTION_SCALE = 5.0  # env.yaml joint_vel action scale
 
+ZERO_CMD_EPS = 1e-3
+
 
 class M20VelocityPolicy(PolicyController):
     """DeepRobotics M20 wheeled quadruped running a velocity-tracking policy."""
@@ -204,6 +206,9 @@ class M20VelocityPolicy(PolicyController):
         pos_cmd[self._leg_ids] = self._leg_pos_target
         vel_cmd = np.zeros(len(pos_cmd), dtype=np.float32)
         vel_cmd[self._wheel_ids] = self._wheel_vel_target
+
+        if float(np.abs(command).max()) < ZERO_CMD_EPS:
+            vel_cmd[self._wheel_ids] = 0.0
 
         self.robot.apply_action(
             ArticulationAction(joint_positions=pos_cmd, joint_velocities=vel_cmd)
