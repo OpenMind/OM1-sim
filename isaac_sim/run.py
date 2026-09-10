@@ -430,7 +430,8 @@ class RobotRosRunner(object):
 
         render_hz = None
         if self._render_dt:
-            render_hz = 1.0 / self._render_dt
+            steps = max(1, int(self._render_dt / self._physics_dt + 1e-9))
+            render_hz = 1.0 / (self._physics_dt * steps)
 
         physics_hz = None
         if self._physics_dt:
