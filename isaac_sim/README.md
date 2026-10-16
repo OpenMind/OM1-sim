@@ -64,3 +64,9 @@ Some environment features are disabled by default and must be opted into with a 
 python3 run.py --vehicles   # enable scripted waypoint vehicles (forklifts/carts)
 python3 run.py --platforms  # enable elevated platforms/ramps (e.g. the warehouse mezzanine)
 ```
+
+The M20's simulated PTZ camera is on by default; skip it when you don't need it:
+
+```bash
+python3 run.py --robot_type m20 --no_ptz
+```

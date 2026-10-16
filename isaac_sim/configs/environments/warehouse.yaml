@@ -2,7 +2,8 @@
 # spawns at the origin in the open southern floor, where the props and movers
 # below live. Movers follow fixed routes and don't avoid props, so positions
 # are kept collision-free by zone: clutter SW, tables W, people centre,
-# forklift ring outer.
+# forklift ring outer. Analog pressure gauges for PTZ inspection runs stand
+# in their own cleared zones.
 type: warehouse
 stage_path: /World/Warehouse
 
@@ -245,6 +246,9 @@ platforms:
 
 remove_prims:
   - region: [-4.6, -1.2, 8.5, 15.0]
+  - region: [-18.8, -5.2, 6.6, 8.4]
+  - region: [-18.0, -16.5, -3.4, -0.8]
+  - region: [1.6, 2.8, 0.4, 1.6]
 
 agents:
   - name: Forklift1
@@ -312,3 +316,100 @@ people:
         - Idle 2
         - GoTo -5.5 3.0 0 _
         - Idle 2
+
+# Analog pressure gauges
+gauges:
+  defaults:
+    diameter: 0.16
+    range: [0.0, 1.6]
+    units: MPa
+    mount: post
+
+  items:
+    - id: PG-001
+      position: [2.2, 1.0, 0.9]
+      yaw_deg: 180.0
+      diameter: 0.25
+      value: 0.95
+
+    - id: PG-101
+      position: [-17.0, 7.4, 1.10]
+      yaw_deg: -90.0
+      value: 0.62
+      post_base_z: 0.66
+    - id: PG-102
+      position: [-15.2, 7.4, 1.10]
+      yaw_deg: -90.0
+      range: [0.0, 10.0]
+      units: bar
+      divisions: 10
+      value: 6.3
+      red_from: 8.0
+      post_base_z: 0.66
+    - id: PG-103
+      position: [-13.4, 7.4, 1.25]
+      yaw_deg: -90.0
+      range: [0.0, 160.0]
+      units: psi
+      value: 92.0
+      drift: {amplitude: 18.0, period_s: 90.0}
+      post_base_z: 0.66
+    - id: PG-104
+      position: [-11.6, 7.4, 1.10]
+      yaw_deg: -90.0
+      diameter: 0.10
+      range: [0.0, 0.6]
+      units: MPa
+      divisions: 6
+      value: 0.41
+      post_base_z: 0.66
+    - id: PG-105
+      position: [-9.8, 7.4, 1.40]
+      yaw_deg: -90.0
+      diameter: 0.20
+      range: [-0.1, 0.5]
+      units: MPa
+      divisions: 6
+      value: 0.12
+      post_base_z: 0.66
+    - id: PG-106
+      position: [-8.0, 7.4, 1.10]
+      yaw_deg: -90.0
+      range: [0.0, 600.0]
+      units: kPa
+      divisions: 6
+      value: 540.0
+      red_from: 500.0
+      post_base_z: 0.66
+    - id: PG-107
+      position: [-6.6, 7.4, 1.60]
+      yaw_deg: -90.0
+      diameter: 0.25
+      range: [0.0, 25.0]
+      units: bar
+      divisions: 5
+      value: 11.0
+      drift: {amplitude: 4.0, period_s: 240.0, phase_deg: 90.0}
+      post_base_z: 0.66
+
+    - id: PG-201
+      position: [-17.2, -2.6, 1.20]
+      yaw_deg: 0.0
+      range: [0.0, 1.0]
+      units: MPa
+      divisions: 10
+      minor: 2
+      value: 0.33
+    - id: PG-202
+      position: [-17.2, -1.6, 0.95]
+      yaw_deg: 0.0
+      diameter: 0.20
+      range: [0.0, 16.0]
+      units: bar
+      value: 4.5
+      red_from: 12.0
+
+  pipes:
+    - {start: [-18.2, 7.48, 0.60], end: [-5.8, 7.48, 0.60], radius: 0.06}
+    - {start: [-18.0, 7.48, 0.0], end: [-18.0, 7.48, 0.54], radius: 0.04, color: [0.3, 0.3, 0.32]}
+    - {start: [-6.0, 7.48, 0.0], end: [-6.0, 7.48, 0.54], radius: 0.04, color: [0.3, 0.3, 0.32]}

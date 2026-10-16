@@ -79,6 +79,8 @@ for _name in (
     "agents",
     "people",
     "apriltag",
+    "ptz",
+    "gauges",
 ):
     _spec = _ilu.spec_from_file_location(_name, _os.path.join(_here, _name + ".py"))
     _mod = _ilu.module_from_spec(_spec)
@@ -97,10 +99,12 @@ import agents
 import apriltag
 import carb
 import environments
+import gauges
 import human
 import numpy as np
 import omni.appwindow  # Contains handle to keyboard
 import people
+import ptz
 import sim_config
 import utils as ros_utils
 from isaacsim.core.api import World
@@ -369,6 +373,7 @@ class RobotRosRunner(object):
         self._linear_attr = None
         self._angular_attr = None
         self._sensors = {}
+        self._ptz = None
 
         self._robot_root = robot_root
         _configure_ros_utils_paths(robot_root, robot_cfg.base_link_name)
@@ -455,6 +460,16 @@ class RobotRosRunner(object):
             physics_hz=physics_hz,
         )
 
+        if self._robot_cfg.ptz is not None:
+            try:
+                self._ptz = ptz.SimPtzCamera(
+                    self._robot_cfg.ptz, ros_utils.BASE_LINK_PRIM
+                )
+                self._ptz.setup()
+            except Exception as e:
+                logger.warning("PTZ camera setup failed: %s", e)
+                self._ptz = None
+
         # Additional render steps to initialize camera render products
         for _ in range(5):
             self._world.step(render=True)
@@ -509,6 +524,10 @@ class RobotRosRunner(object):
         ros_utils.setup_joint_states_publisher(
             simulation_app, articulation_link=self._robot_cfg.base_link_name
         )
+
+        if self._ptz is not None:
+            self._ptz.setup_ros(simulation_app)
+            self._ptz.register_physics_callback(self._world)
 
     def _get_cmd_vel(self) -> Optional[np.ndarray]:
         if self._linear_attr is None or self._angular_attr is None:
@@ -678,6 +697,11 @@ def main():
         "--no_keyboard", action="store_true", help="Disable keyboard control"
     )
     parser.add_argument(
+        "--no_ptz",
+        action="store_true",
+        help="Skip the robot config's simulated PTZ camera (saves a render)",
+    )
+    parser.add_argument(
         "--scan_source",
         choices=["2d", "3d"],
         default=None,
@@ -766,6 +790,8 @@ def main():
         )
     if not args.platforms:
         env_config.platforms = None
+    if args.no_ptz:
+        robot_cfg.ptz = None
 
     logger.info("Running %s robot simulation", args.robot_type.upper())
 
@@ -836,6 +862,11 @@ def main():
         people_runner.register_dynamic_obstacle(runner._robot_root)
         simulation_app.update()
 
+        # Inspection gauges; geometry added before world.reset().
+        gauge_runner = gauges.GaugeRunner(env_config.gauges)
+        gauge_runner.setup()
+        simulation_app.update()
+
         runner._world.reset()
         if env_config.camera_view:
             from isaacsim.core.utils.viewports import set_camera_view
@@ -856,8 +887,10 @@ def main():
             runner._world,
             robot_pose_fn=lambda: runner._robot.robot.get_world_pose()[0],
         )
+        gauge_runner.register_physics_callback(runner._world)
         simulation_app.update()
         runner.setup_ros()
+        gauge_runner.setup_ros(simulation_app)
         simulation_app.update()
         if env_config.apriltag_dock:
             apriltag.add_apriltag_dock(env_config.apriltag_dock, env_config.ground_z)
