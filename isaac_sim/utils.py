@@ -949,6 +949,97 @@ def setup_camerainfo_graph(
     return True
 
 
+def setup_ros2_topic_graph(
+    simulation_app,
+    graph_path: str,
+    subscribers: Optional[dict] = None,
+    publishers: Optional[dict] = None,
+    transforms: Optional[dict] = None,
+) -> None:
+    """
+    Build one graph of generic ROS2 subscribers, publishers and TF trees.
+    """
+    import omni.graph.core as og
+    from isaacsim.core.utils.prims import is_prim_path_valid
+
+    if is_prim_path_valid(graph_path):
+        logger.info(f"[ROS2] {graph_path} already exists")
+        return
+
+    nodes = [
+        ("OnTick", "omni.graph.action.OnTick"),
+        ("Clock", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+        ("Ctx", "isaacsim.ros2.bridge.ROS2Context"),
+    ]
+    connections = []
+    values = [("Ctx.inputs:useDomainIDEnvVar", True)]
+
+    def _generic(name, node_type, topic, msg_type):
+        package, subfolder, msg_name = msg_type.split("/")
+        nodes.append((name, node_type))
+        connections.extend(
+            [
+                ("OnTick.outputs:tick", f"{name}.inputs:execIn"),
+                ("Ctx.outputs:context", f"{name}.inputs:context"),
+            ]
+        )
+        values.extend(
+            [
+                (f"{name}.inputs:messagePackage", package),
+                (f"{name}.inputs:messageSubfolder", subfolder),
+                (f"{name}.inputs:messageName", msg_name),
+                (f"{name}.inputs:topicName", topic),
+                (f"{name}.inputs:queueSize", 10),
+            ]
+        )
+
+    for name, (topic, msg_type) in (subscribers or {}).items():
+        _generic(name, "isaacsim.ros2.bridge.ROS2Subscriber", topic, msg_type)
+        nodes.append((f"{name}Count", "omni.graph.action.Counter"))
+        connections.append((f"{name}.outputs:execOut", f"{name}Count.inputs:execIn"))
+    for name, (topic, msg_type) in (publishers or {}).items():
+        _generic(name, "isaacsim.ros2.bridge.ROS2Publisher", topic, msg_type)
+    for name, tf in (transforms or {}).items():
+        static = bool(tf.get("static", False))
+        nodes.append((name, "isaacsim.ros2.bridge.ROS2PublishRawTransformTree"))
+        connections.extend(
+            [
+                ("OnTick.outputs:tick", f"{name}.inputs:execIn"),
+                ("Clock.outputs:simulationTime", f"{name}.inputs:timeStamp"),
+                ("Ctx.outputs:context", f"{name}.inputs:context"),
+            ]
+        )
+        values.extend(
+            [
+                (f"{name}.inputs:parentFrameId", tf["parent"]),
+                (f"{name}.inputs:childFrameId", tf["child"]),
+                (f"{name}.inputs:topicName", "/tf_static" if static else "/tf"),
+                (f"{name}.inputs:translation", [float(v) for v in tf["translation"]]),
+                (f"{name}.inputs:rotation", [float(v) for v in tf["rotation"]]),
+                (f"{name}.inputs:staticPublisher", static),
+                (f"{name}.inputs:queueSize", 10),
+            ]
+        )
+
+    og.Controller.edit(
+        {
+            "graph_path": graph_path,
+            "evaluator_name": "execution",
+            "pipeline_stage": og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION,
+        },
+        {
+            og.Controller.Keys.CREATE_NODES: nodes,
+            og.Controller.Keys.CONNECT: connections,
+            og.Controller.Keys.SET_VALUES: values,
+        },
+    )
+    logger.info(
+        f"[ROS2] {graph_path}: {len(subscribers or {})} subscribers, "
+        f"{len(publishers or {})} publishers, {len(transforms or {})} transforms"
+    )
+    simulation_app.update()
+
+
 def setup_color_camerainfo_graph(
     simulation_app,
     topic="/camera/realsense2_camera_node/color/camera_info",

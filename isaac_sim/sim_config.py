@@ -40,6 +40,22 @@ class Lidar3DConfig:
 
 
 @dataclass
+class PtzConfig:
+    """Simulated pan-tilt-zoom camera (see ``ptz`` in configs/robots/*.yaml)."""
+
+    ns: str = "zr10"
+    position: Vec3 = (0.15, 0.0, 0.20)
+    resolution: Tuple[int, int] = (1280, 720)
+    hfov_deg: float = 62.0
+    zoom_max: float = 6.0
+    zoom_rate: float = 2.0
+    yaw_limits_deg: Tuple[float, float] = (-135.0, 135.0)
+    pitch_limits_deg: Tuple[float, float] = (-25.0, 90.0)
+    slew_rate_dps: float = 60.0
+    rotate_max_dps: float = 90.0
+
+
+@dataclass
 class RobotConfig:
     """Per-robot runtime configuration (see configs/robots/*.yaml)."""
 
@@ -62,6 +78,7 @@ class RobotConfig:
     requires_encoder: bool = False
     requires_env_yaml: bool = True
     pivot_assist: bool = False
+    ptz: Optional[PtzConfig] = None
 
     @property
     def policy_dir_abs(self) -> str:
@@ -124,6 +141,7 @@ class EnvironmentConfig:
     apriltag_dock: Optional[dict] = None
     remove_prims: Optional[list] = None
     platforms: Optional[list] = None
+    gauges: Optional[dict] = None
 
     @property
     def usd_local_abs(self) -> Optional[str]:
@@ -153,6 +171,34 @@ def _load_lidars_3d(data: dict) -> Optional[List[Lidar3DConfig]]:
     ]
 
 
+def _pair(value) -> Tuple[float, float]:
+    lo, hi = value
+    return (float(lo), float(hi))
+
+
+def _load_ptz(data: dict) -> Optional[PtzConfig]:
+    """Parse the optional ``ptz`` block from a robot yaml."""
+    entry = data.get("ptz")
+    if not entry or not entry.get("enabled", True):
+        return None
+    defaults = PtzConfig()
+    width, height = entry.get("resolution", defaults.resolution)
+    return PtzConfig(
+        ns=str(entry.get("ns", defaults.ns)).strip("/"),
+        position=_as_vec3(entry.get("position", defaults.position)),
+        resolution=(int(width), int(height)),
+        hfov_deg=float(entry.get("hfov_deg", defaults.hfov_deg)),
+        zoom_max=float(entry.get("zoom_max", defaults.zoom_max)),
+        zoom_rate=float(entry.get("zoom_rate", defaults.zoom_rate)),
+        yaw_limits_deg=_pair(entry.get("yaw_limits_deg", defaults.yaw_limits_deg)),
+        pitch_limits_deg=_pair(
+            entry.get("pitch_limits_deg", defaults.pitch_limits_deg)
+        ),
+        slew_rate_dps=float(entry.get("slew_rate_dps", defaults.slew_rate_dps)),
+        rotate_max_dps=float(entry.get("rotate_max_dps", defaults.rotate_max_dps)),
+    )
+
+
 def load_robot_config(robot_type: str) -> RobotConfig:
     """Load configs/robots/<robot_type>.yaml into a RobotConfig."""
     path = os.path.join(_CONFIG_DIR, "robots", f"{robot_type}.yaml")
@@ -180,6 +226,7 @@ def load_robot_config(robot_type: str) -> RobotConfig:
         requires_encoder=bool(data.get("requires_encoder", False)),
         requires_env_yaml=bool(data.get("requires_env_yaml", True)),
         pivot_assist=bool(data.get("pivot_assist", False)),
+        ptz=_load_ptz(data),
     )
 
 
@@ -205,6 +252,7 @@ def load_environment_config(env_type: str) -> EnvironmentConfig:
         apriltag_dock=data.get("apriltag_dock"),
         remove_prims=data.get("remove_prims"),
         platforms=data.get("platforms"),
+        gauges=data.get("gauges"),
     )
 
 

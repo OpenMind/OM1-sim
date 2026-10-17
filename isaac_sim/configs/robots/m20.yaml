@@ -44,3 +44,16 @@ lidars_3d:
     topic: /lidar_points_rear
     position: [-0.32028, 0.0, -0.013]
     rpy_deg: [0.0, -35.0, 0.0]
+
+# Simulated SIYI PTZ camera.
+ptz:
+  ns: zr10
+  position: [0.15, 0.0, 0.20]
+  resolution: [1280, 720]
+  hfov_deg: 62.0
+  zoom_max: 6.0
+  zoom_rate: 2.0
+  yaw_limits_deg: [-135.0, 135.0]
+  pitch_limits_deg: [-25.0, 90.0]
+  slew_rate_dps: 60.0
+  rotate_max_dps: 90.0
