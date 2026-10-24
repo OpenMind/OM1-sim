@@ -237,7 +237,7 @@ def _create_rtx_lidar_pointcloud(
         path=sensor_name,
         parent=link_prim,
         config="OS0",
-        variant="OS0_REV6_128ch10hz512res",
+        variant="OS0_REV6_128ch20hz1024res",
         translation=(0.0, 0.0, 0.0),
         orientation=Gf.Quatd(1, 0, 0, 0),
     )
@@ -1148,6 +1148,7 @@ def setup_joint_states_publisher(
 
 
 _IMU_TICK_CANDIDATES = (
+    ("isaacsim.core.nodes.OnPhysicsStep", "step"),
     ("omni.physx.graph.OnPhysicsStep", "step"),
     ("omni.graph.action.OnPhysicsStep", "step"),
     ("omni.graph.action.OnTick", "tick"),
@@ -1171,7 +1172,9 @@ def _create_imu_graph(graph_path: str, imu_prim: str, topic: str, frame_id: str)
                     "graph_path": graph_path,
                     "evaluator_name": "execution",
                     "pipeline_stage": (
-                        og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION
+                        og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_ONDEMAND
+                        if "PhysicsStep" in tick_type
+                        else og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_SIMULATION
                     ),
                 },
                 {
