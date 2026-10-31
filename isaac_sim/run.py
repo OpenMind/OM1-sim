@@ -73,6 +73,7 @@ import sys as _sys
 _here = _os.path.dirname(_os.path.abspath(__file__))
 for _name in (
     "utils",
+    "thermal",
     "sim_config",
     "environments",
     "human",
@@ -81,6 +82,7 @@ for _name in (
     "apriltag",
     "ptz",
     "gauges",
+    "pipework",
 ):
     _spec = _ilu.spec_from_file_location(_name, _os.path.join(_here, _name + ".py"))
     _mod = _ilu.module_from_spec(_spec)
@@ -104,8 +106,10 @@ import human
 import numpy as np
 import omni.appwindow  # Contains handle to keyboard
 import people
+import pipework
 import ptz
 import sim_config
+import thermal
 import utils as ros_utils
 from isaacsim.core.api import World
 from isaacsim.robot.policy.examples.controllers.config_loader import parse_env_config
@@ -460,11 +464,19 @@ class RobotRosRunner(object):
             physics_hz=physics_hz,
         )
 
-        if self._robot_cfg.ptz is not None:
+        cfg = self._robot_cfg.ptz
+        if cfg is not None:
             try:
-                self._ptz = ptz.SimPtzCamera(
-                    self._robot_cfg.ptz, ros_utils.BASE_LINK_PRIM
-                )
+                heat = None
+                if cfg.thermal is not None:
+                    heat = thermal.parse_heat(self._env_config.thermal)
+                    heat.exact.update(
+                        pipework.heat_sources(
+                            pipework.parse_layout(self._env_config.pipework),
+                            heat.ambient_c,
+                        )
+                    )
+                self._ptz = ptz.SimPtzCamera(cfg, ros_utils.BASE_LINK_PRIM, heat=heat)
                 self._ptz.setup()
             except Exception as e:
                 logger.warning("PTZ camera setup failed: %s", e)
@@ -865,6 +877,12 @@ def main():
         # Inspection gauges; geometry added before world.reset().
         gauge_runner = gauges.GaugeRunner(env_config.gauges)
         gauge_runner.setup()
+        simulation_app.update()
+
+        # Process pipework for the thermal camera.
+        pipework.PipeworkRunner(
+            env_config.pipework, thermal.parse_heat(env_config.thermal).ambient_c
+        ).setup()
         simulation_app.update()
 
         runner._world.reset()

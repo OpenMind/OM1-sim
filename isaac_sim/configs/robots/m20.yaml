@@ -45,15 +45,41 @@ lidars_3d:
     position: [-0.32028, 0.0, -0.013]
     rpy_deg: [0.0, -35.0, 0.0]
 
-# Simulated SIYI PTZ camera.
+# Simulated PTZ head, modelled on the HIKMICRO HM-TD5767T-7/W dual-spectrum
+# mini PTZ.
 ptz:
   ns: zr10
   position: [0.15, 0.0, 0.20]
   resolution: [1280, 720]
-  hfov_deg: 62.0
-  zoom_max: 6.0
-  zoom_rate: 2.0
+  hfov_deg: 53.6
+  zoom_max: 25.0
+  zoom_rate: 6.0
   yaw_limits_deg: [-135.0, 135.0]
   pitch_limits_deg: [-25.0, 90.0]
-  slew_rate_dps: 60.0
-  rotate_max_dps: 90.0
+  slew_rate_dps: 30.0
+  rotate_max_dps: 30.0
+  thermal:
+    lens:
+      resolution: [640, 512]
+      hfov_deg: 88.5
+      offset: [0.0, 0.0, 0.0]
+    topic: thermal/image_raw
+    rate_hz: 9.0
+    palette: rainbow
+    mode: fixed
+    range_c: [16.0, 34.0]
+    adapt_s: 3.0
+    sensor_scale: 1
+    detail_c: 4.0
+    detail_px: 2.0
+    edge_falloff: 0.5
+    blur_px: 0.7
+    noise_c: 0.12
+    pattern_noise_c: 0.08
+    patch_c: 1.5
+    patch_m: 1.5
+    stratification_c_per_m: 0.3
+    glow_gain: 0.08
+    plume_gain: 0.06
+    glow_px: 5.0
+    glow_above_c: 4.0
