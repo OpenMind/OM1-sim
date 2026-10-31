@@ -2,6 +2,9 @@
 Procedural analog pressure gauges for inspection scenes.
 """
 
+import contextlib
+import hashlib
+import io
 import json
 import logging
 import math
@@ -205,8 +208,8 @@ def _text(draw, xy, text, font, fill) -> None:
         )
 
 
-def render_dial(spec: GaugeSpec, path: str, size: int = TEXTURE_PX) -> str:
-    """Draw the dial face for spec to a PNG at path and return the path."""
+def render_dial(spec: GaugeSpec, size: int = TEXTURE_PX) -> bytes:
+    """Draw the dial face for spec and return it as PNG bytes."""
     from PIL import Image, ImageDraw
 
     img = Image.new("RGB", (size, size), (246, 245, 238))
@@ -260,8 +263,29 @@ def render_dial(spec: GaugeSpec, path: str, size: int = TEXTURE_PX) -> str:
     _text(draw, (c, c + 0.42 * r), spec.units, _font(int(0.10 * size)), ink)
     _text(draw, (c, c - 0.30 * r), spec.label, _font(int(0.065 * size)), (60, 60, 60))
 
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    img.save(path)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def write_texture(data: bytes, directory: str, stem: str) -> str:
+    """
+    Save PNG bytes under a name derived from their content; return the path.
+    """
+    digest = hashlib.sha256(data).hexdigest()[:16]
+    path = os.path.join(directory, f"{stem}_{digest}.png")
+    if os.path.isfile(path) and os.path.getsize(path) == len(data):
+        return path
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{stem}_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
     return path
 
 
@@ -431,7 +455,7 @@ class GaugeRunner:
                 housing_mat,
                 collide=True,
             )
-            texture = render_dial(gauge, os.path.join(texture_dir(), f"{safe}.png"))
+            texture = write_texture(render_dial(gauge), texture_dir(), safe)
             face_mat = _material(stage, f"{mats}/Face_{safe}", texture=texture)
             _disc_mesh(stage, f"{root}/Face", radius, 0.002, face_mat)
 

@@ -317,6 +317,146 @@ people:
         - GoTo -5.5 3.0 0 _
         - Idle 2
 
+thermal:
+  ambient_c: 21.0
+  emissivity: 0.93
+  stable_range_c: [15.0, 140.0]
+  stable_knee: [34.0, 0.55]
+  spread_c: 4.0
+  part_spread: 0.12
+  sources:
+    - {prim: /World/Gauges/Pipe_0, temperature_c: 78.0}
+    - {prim: /World/Gauges/Pipe_*, temperature_c: 45.0}
+    - {prim: /World/Conveyor_*, temperature_c: 38.0}
+    - {prim: /World/Cabinet_*, temperature_c: 34.0}
+    - {prim: /World/Agents/Forklift*, temperature_c: 40.0}
+    - {prim: /World/Warehouse/forklift, temperature_c: 27.0}
+    - {prim: /World/Warehouse/SM_LampCeiling*, temperature_c: 55.0}
+    - {prim: /World/Characters/*, temperature_c: 31.0}
+    - {prim: /World/M20, temperature_c: 33.0}
+    - {prim: /World/Warehouse/SM_Wall*, temperature_c: 21.0}
+    - {prim: /World/Warehouse/SM_floor*, temperature_c: 21.0, emissivity: 0.85}
+    - {prim: /World/Warehouse/SM_Ceiling*, temperature_c: 21.0}
+    - {prim: /World/Warehouse/SM_Pillar*, temperature_c: 21.0}
+
+pipework:
+  defaults:
+    flange_every_m: 2.5
+    support_every_m: 3.0
+    ceiling_z: 9.0
+
+  runs:
+    - name: W_Steam
+      insulation: aluminum
+      radius: 0.09
+      temperature_c: 125.0
+      drop_c_per_m: 0.6
+      color: [0.55, 0.14, 0.10]
+      path: [[-25.3, -15.0, 0.0], [-25.3, -15.0, 1.5], [-25.3, -1.0, 1.5], [-25.3, -1.0, 0.0]]
+      valves: [{at: 5.0}, {at: 10.5}]
+      traps: [{at: 13.0}]
+    - name: W_Condensate
+      finish: rusty
+      radius: 0.05
+      temperature_c: 60.0
+      drop_c_per_m: 0.3
+      color: [0.45, 0.46, 0.48]
+      path: [[-24.8, -15.0, 0.0], [-24.8, -15.0, 0.7], [-24.8, -1.0, 0.7], [-24.8, -1.0, 0.0]]
+      valves: [{at: 7.7, closed: true}]
+    - name: W_Chilled
+      insulation: painted
+      radius: 0.07
+      temperature_c: 7.0
+      drop_c_per_m: -0.1
+      color: [0.15, 0.30, 0.60]
+      supports: none
+      path: [[-25.0, -15.0, 2.6], [-25.0, -1.0, 2.6]]
+      valves: [{at: 6.0}]
+
+    - name: E_HotWater
+      radius: 0.08
+      temperature_c: 85.0
+      drop_c_per_m: 0.5
+      color: [0.18, 0.42, 0.22]
+      path: [[4.9, -14.0, 0.0], [4.9, -14.0, 1.2], [4.9, 4.0, 1.2], [4.9, 4.0, 0.0]]
+      valves: [{at: 5.2}, {at: 13.2}]
+    - name: E_Return
+      finish: galvanized
+      radius: 0.06
+      temperature_c: 48.0
+      drop_c_per_m: 0.2
+      color: [0.45, 0.46, 0.48]
+      path: [[5.2, -14.0, 0.0], [5.2, -14.0, 0.5], [5.2, 4.0, 0.5], [5.2, 4.0, 0.0]]
+      valves: [{at: 8.5}]
+
+    - name: SW_Header
+      radius: 0.10
+      temperature_c: 110.0
+      drop_c_per_m: 0.4
+      color: [0.55, 0.14, 0.10]
+      flange_every_m: 3.0
+      path: [[-24.5, -21.0, 0.0], [-24.5, -21.0, 1.1], [-14.5, -21.0, 1.1], [-14.5, -21.0, 0.0]]
+      valves: [{at: 2.4}, {at: 5.8}, {at: 9.6}]
+      traps: [{at: 7.7}]
+    - name: SW_BranchA
+      insulation: aluminum
+      radius: 0.07
+      temperature_c: 105.0
+      drop_c_per_m: 0.5
+      color: [0.55, 0.14, 0.10]
+      path: [[-22.0, -21.0, 1.1], [-22.0, -21.0, 2.8], [-22.0, -18.6, 2.8], [-22.0, -18.6, 0.0]]
+      valves: [{at: 2.9}]
+    - name: SW_BranchB
+      radius: 0.07
+      temperature_c: 95.0
+      drop_c_per_m: 0.5
+      color: [0.55, 0.14, 0.10]
+      path: [[-17.5, -21.0, 1.1], [-17.5, -21.0, 2.8], [-17.5, -18.6, 2.8], [-17.5, -18.6, 0.0]]
+      valves: [{at: 2.9, closed: true}]
+    - name: SW_Return
+      finish: rusty
+      radius: 0.07
+      temperature_c: 50.0
+      drop_c_per_m: 0.2
+      color: [0.45, 0.46, 0.48]
+      path: [[-24.5, -19.6, 0.0], [-24.5, -19.6, 0.5], [-14.5, -19.6, 0.5], [-14.5, -19.6, 0.0]]
+      valves: [{at: 5.5}]
+    - name: SW_Chilled
+      radius: 0.08
+      temperature_c: 6.0
+      drop_c_per_m: -0.1
+      color: [0.15, 0.30, 0.60]
+      path: [[-24.5, -22.5, 2.0], [-14.5, -22.5, 2.0]]
+      valves: [{at: 4.0}]
+
+    - name: N_Steam
+      insulation: painted
+      radius: 0.10
+      temperature_c: 140.0
+      drop_c_per_m: 0.5
+      color: [0.55, 0.14, 0.10]
+      path: [[-24.0, 29.6, 0.0], [-24.0, 29.6, 1.3], [3.0, 29.6, 1.3], [3.0, 29.6, 4.5]]
+      valves: [{at: 6.3}, {at: 14.3}, {at: 22.3}]
+      traps: [{at: 10.3}, {at: 25.3}]
+    - name: N_Feed
+      finish: galvanized
+      radius: 0.06
+      temperature_c: 70.0
+      drop_c_per_m: 0.3
+      color: [0.18, 0.42, 0.22]
+      path: [[-24.0, 29.0, 0.0], [-24.0, 29.0, 2.2], [3.0, 29.0, 2.2]]
+      valves: [{at: 12.2}]
+
+    - name: O_Main
+      insulation: aluminum
+      radius: 0.12
+      temperature_c: 90.0
+      drop_c_per_m: 0.3
+      color: [0.18, 0.42, 0.22]
+      supports: ceiling
+      path: [[-25.6, -11.0, 1.8], [-25.6, -11.0, 4.2], [5.1, -11.0, 4.2], [5.1, -11.0, 1.8]]
+      valves: [{at: 17.4}]
+
 # Analog pressure gauges
 gauges:
   defaults:
