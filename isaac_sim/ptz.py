@@ -1,5 +1,6 @@
 """
-Simulated SIYI pan-tilt-zoom camera.
+Simulated pan-tilt-zoom head: a visible zoom camera and, optionally, a thermal
+camera with its own fixed lens, turning together on one gimbal.
 """
 
 import logging
@@ -113,8 +114,11 @@ class PtzState:
 class SimPtzCamera:
     """The PTZ camera prims, publishers and ROS command handling."""
 
-    def __init__(self, cfg, base_link_prim: str, tf_parent: str = "base") -> None:
+    def __init__(
+        self, cfg, base_link_prim: str, tf_parent: str = "base", heat=None
+    ) -> None:
         self.cfg = cfg
+        self.heat = heat
         self.state = PtzState(cfg)
         ns = cfg.ns
         self.gimbal_prim = f"{base_link_prim}/{ns}_gimbal"
@@ -123,10 +127,16 @@ class SimPtzCamera:
         self.tf_parent = tf_parent
         self.gimbal_frame = f"{ns}_gimbal"
         self.optical_frame = f"{ns}_camera_optical_frame"
-        self.camerainfo_graph = "/PtzCameraInfoGraph"
-        self.ros_graph = "/PtzRosGraph"
+        self.camerainfo_graph = f"/Ptz_{ns}_CameraInfoGraph"
+        self.ros_graph = f"/Ptz_{ns}_RosGraph"
+        self.thermal_link_prim = f"{self.gimbal_prim}/thermal_link"
+        self.thermal_camera_prim = f"{self.thermal_link_prim}/{ns}_thermal_camera"
+        self.thermal_optical_frame = f"{ns}_thermal_optical_frame"
+        self.thermal_camerainfo_graph = f"/Ptz_{ns}_ThermalCameraInfoGraph"
 
         self._camera = None
+        self._thermal_camera = None
+        self._thermal = None
         self._yaw_op = None
         self._pitch_op = None
         self._focal_attr = None
@@ -191,6 +201,57 @@ class SimPtzCamera:
             self.cfg.hfov_deg,
             self.cfg.zoom_max,
         )
+        if self.cfg.thermal is not None:
+            self._setup_thermal_camera(stage)
+
+    def _thermal_lens(self):
+        """The thermal camera's lens: its own, or the visible one's at 1x."""
+        from sim_config import ThermalLensConfig
+
+        lens = self.cfg.thermal_lens
+        if lens is None:
+            lens = ThermalLensConfig(
+                resolution=tuple(self.cfg.resolution), hfov_deg=self.cfg.hfov_deg
+            )
+        return lens
+
+    def _setup_thermal_camera(self, stage) -> None:
+        """Build the thermal camera prim on the gimbal, beside the visible lens."""
+        import utils as ros_utils
+        from isaacsim.sensors.camera import Camera
+        from pxr import UsdGeom
+
+        lens = self._thermal_lens()
+        ros_utils.ensure_link_xform(
+            stage,
+            self.thermal_link_prim,
+            translation=tuple(lens.offset),
+            rpy_rad=(math.radians(90.0), 0.0, math.radians(-90.0)),
+        )
+        self._thermal_camera = Camera(
+            prim_path=self.thermal_camera_prim,
+            name=f"{self.cfg.ns}_thermal_camera",
+            resolution=tuple(lens.resolution),
+        )
+        self._thermal_camera.initialize()
+        cam_xf = UsdGeom.Xformable(stage.GetPrimAtPath(self.thermal_camera_prim))
+        cam_xf.ClearXformOpOrder()
+        self._thermal_camera.set_clipping_range(near_distance=0.05, far_distance=200.0)
+        ros_utils.set_camera_lens(
+            stage,
+            self.thermal_camera_prim,
+            focal_length_mm=focal_length_mm(lens.hfov_deg, 1.0),
+            horizontal_aperture_mm=HORIZONTAL_APERTURE_MM,
+            resolution=tuple(lens.resolution),
+        )
+        logger.info(
+            "[PTZ] %s thermal camera, %dx%d, hfov %.1f deg, %s from the visible lens",
+            self.cfg.ns,
+            lens.resolution[0],
+            lens.resolution[1],
+            lens.hfov_deg,
+            tuple(lens.offset),
+        )
 
     def setup_ros(self, simulation_app) -> None:
         """Attach the image writer, the CameraInfo graph and the gimbal graph."""
@@ -220,6 +281,10 @@ class SimPtzCamera:
                 logger.info("[PTZ] image -> /%s/image_raw", ns)
             except Exception as e:
                 logger.warning("[PTZ] image publisher setup failed: %s", e)
+        if self._thermal_camera is not None:
+            thermal_rp = self._thermal_camera.get_render_product_path()
+            if thermal_rp:
+                self._setup_thermal(simulation_app, thermal_rp)
 
         width, height, fx, fy, cx, cy = ros_utils.camera_intrinsics_from_lens(
             focal_length_mm(self.cfg.hfov_deg, 1.0),
@@ -255,6 +320,76 @@ class SimPtzCamera:
             self._commands = {}
             logger.warning("[PTZ] gimbal ROS graph setup failed: %s", e)
 
+    def _setup_thermal(self, simulation_app, render_product: str) -> None:
+        """Publish the thermal camera's image, temperatures and camera_info."""
+        import thermal
+        import utils as ros_utils
+
+        lens = self._thermal_lens()
+        ns = self.cfg.ns
+        try:
+            self._thermal = thermal.SimThermalCamera(
+                self.cfg.thermal,
+                self.heat if self.heat is not None else thermal.HeatScene(),
+                render_product,
+                tuple(lens.resolution),
+                topic=f"/{ns}/{self.cfg.thermal.topic}",
+                frame_id=self.thermal_optical_frame,
+                mode_topic=f"/{ns}/thermal/mode",
+                mode_state_topic=f"/{ns}/thermal/mode_state",
+                focal_px=self._thermal_focal_px,
+                camera_to_world=self._thermal_camera_to_world,
+                graph_prefix=f"/Ptz_{self.cfg.ns}_",
+                temperature_topic=(
+                    f"/{self.cfg.ns}/{self.cfg.thermal.temperature_topic}"
+                    if self.cfg.thermal.temperature_topic
+                    else None
+                ),
+            )
+            self._thermal.setup_ros(simulation_app)
+        except Exception as e:
+            self._thermal = None
+            logger.warning("[PTZ] thermal view setup failed: %s", e)
+
+        width, height, fx, fy, cx, cy = ros_utils.camera_intrinsics_from_lens(
+            focal_length_mm(lens.hfov_deg, 1.0),
+            HORIZONTAL_APERTURE_MM,
+            tuple(lens.resolution),
+        )
+        ros_utils.setup_camerainfo_graph(
+            simulation_app,
+            graph_path=self.thermal_camerainfo_graph,
+            label=f"{ns} thermal",
+            topic=f"/{ns}/thermal/camera_info",
+            frame_id=self.thermal_optical_frame,
+            width=width,
+            height=height,
+            fx=fx,
+            fy=fy,
+            cx=cx,
+            cy=cy,
+        )
+
+    def _thermal_focal_px(self) -> float:
+        """The thermal lens's horizontal focal length in pixels; it is fixed."""
+        lens = self._thermal_lens()
+        focal = focal_length_mm(lens.hfov_deg, 1.0)
+        return focal / HORIZONTAL_APERTURE_MM * lens.resolution[0]
+
+    def _thermal_camera_to_world(self):
+        """The thermal camera's current 4x4 world transform (USD row vectors)."""
+        import numpy as np
+        import omni.usd
+        from pxr import Usd, UsdGeom
+
+        prim = (
+            omni.usd.get_context().get_stage().GetPrimAtPath(self.thermal_camera_prim)
+        )
+        matrix = UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(
+            Usd.TimeCode.Default()
+        )
+        return np.array(matrix, dtype=np.float64)
+
     def _setup_gimbal_graph(self, simulation_app) -> None:
         import omni.graph.core as og
         import utils as ros_utils
@@ -288,6 +423,7 @@ class SimPtzCamera:
                     "rotation": OPTICAL_QUAT_XYZW,
                     "static": True,
                 },
+                **self._thermal_tf(),
             },
         )
 
@@ -323,9 +459,27 @@ class SimPtzCamera:
         self._publish_state()
         logger.info("[PTZ] serving %s/*", g)
 
+    def _thermal_tf(self) -> dict:
+        """The thermal optical frame's static TF, if the head has one."""
+        if self.cfg.thermal is None:
+            return {}
+        return {
+            "ThermalOpticalTf": {
+                "parent": self.gimbal_frame,
+                "child": self.thermal_optical_frame,
+                "translation": tuple(self._thermal_lens().offset),
+                "rotation": OPTICAL_QUAT_XYZW,
+                "static": True,
+            }
+        }
+
     def register_physics_callback(self, world) -> None:
-        """Step the gimbal each physics step (call after world.reset())."""
-        world.add_physics_callback("sim_ptz_step", callback_fn=self.on_physics_step)
+        """Step the gimbal and thermal view (call after world.reset())."""
+        world.add_physics_callback(
+            f"sim_ptz_{self.cfg.ns}_step", callback_fn=self.on_physics_step
+        )
+        if self._thermal is not None:
+            self._thermal.register_render_callback(world)
 
     def on_physics_step(self, step_size: float) -> None:
         """Apply new commands, advance the gimbal and update its published state."""
