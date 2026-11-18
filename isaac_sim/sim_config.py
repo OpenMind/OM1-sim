@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import yaml
+from thermal import ThermalConfig
+from thermal import parse_config as _parse_thermal
 
 Vec3 = Tuple[float, float, float]
 
@@ -40,6 +42,18 @@ class Lidar3DConfig:
 
 
 @dataclass
+class ThermalLensConfig:
+    """
+    The thermal camera's lens on the PTZ head (see ``ptz.thermal.lens``).
+    """
+
+    resolution: Tuple[int, int] = (640, 512)
+    hfov_deg: float = 88.5
+    # From the visible lens, in the gimbal frame (x forward, y left, z up).
+    offset: Vec3 = (0.0, 0.0, 0.0)
+
+
+@dataclass
 class PtzConfig:
     """Simulated pan-tilt-zoom camera (see ``ptz`` in configs/robots/*.yaml)."""
 
@@ -53,6 +67,18 @@ class PtzConfig:
     pitch_limits_deg: Tuple[float, float] = (-25.0, 90.0)
     slew_rate_dps: float = 60.0
     rotate_max_dps: float = 90.0
+    thermal: Optional[ThermalConfig] = None
+    thermal_lens: Optional[ThermalLensConfig] = None
+
+
+@dataclass
+class AcousticConfig:
+    """Simulated acoustic imager (see ``acoustic`` in configs/robots/*.yaml)."""
+
+    position: Vec3 = (0.25, 0.0, 0.15)
+    resolution: Tuple[int, int] = (1280, 720)
+    hfov_deg: float = 62.0
+    topic: str = "/acoustic/image_raw"
 
 
 @dataclass
@@ -79,6 +105,7 @@ class RobotConfig:
     requires_env_yaml: bool = True
     pivot_assist: bool = False
     ptz: Optional[PtzConfig] = None
+    acoustic: Optional[AcousticConfig] = None
 
     @property
     def policy_dir_abs(self) -> str:
@@ -142,6 +169,8 @@ class EnvironmentConfig:
     remove_prims: Optional[list] = None
     platforms: Optional[list] = None
     gauges: Optional[dict] = None
+    thermal: Optional[dict] = None
+    pipework: Optional[dict] = None
 
     @property
     def usd_local_abs(self) -> Optional[str]:
@@ -176,13 +205,34 @@ def _pair(value) -> Tuple[float, float]:
     return (float(lo), float(hi))
 
 
+def _load_thermal_lens(entry: Optional[dict]) -> ThermalLensConfig:
+    """Parse ``ptz.thermal.lens``; the defaults are the HIKMICRO 7 mm lens."""
+    defaults = ThermalLensConfig()
+    entry = entry or {}
+    width, height = entry.get("resolution", defaults.resolution)
+    hfov = float(entry.get("hfov_deg", defaults.hfov_deg))
+    if not 0.0 < hfov < 180.0:
+        raise ValueError(f"ptz.thermal.lens.hfov_deg must be in (0, 180), got {hfov}")
+    return ThermalLensConfig(
+        resolution=(int(width), int(height)),
+        hfov_deg=hfov,
+        offset=_as_vec3(entry.get("offset", defaults.offset)),
+    )
+
+
 def _load_ptz(data: dict) -> Optional[PtzConfig]:
-    """Parse the optional ``ptz`` block from a robot yaml."""
+    """Parse the optional ``ptz`` block: the pan-tilt head and its cameras."""
     entry = data.get("ptz")
     if not entry or not entry.get("enabled", True):
         return None
     defaults = PtzConfig()
     width, height = entry.get("resolution", defaults.resolution)
+    thermal_entry = entry.get("thermal")
+    thermal = lens = None
+    if thermal_entry and thermal_entry.get("enabled", True):
+        look = {k: v for k, v in thermal_entry.items() if k != "lens"}
+        thermal = _parse_thermal({**look, "enabled": True})
+        lens = _load_thermal_lens(thermal_entry.get("lens"))
     return PtzConfig(
         ns=str(entry.get("ns", defaults.ns)).strip("/"),
         position=_as_vec3(entry.get("position", defaults.position)),
@@ -196,6 +246,26 @@ def _load_ptz(data: dict) -> Optional[PtzConfig]:
         ),
         slew_rate_dps=float(entry.get("slew_rate_dps", defaults.slew_rate_dps)),
         rotate_max_dps=float(entry.get("rotate_max_dps", defaults.rotate_max_dps)),
+        thermal=thermal,
+        thermal_lens=lens,
+    )
+
+
+def _load_acoustic(data: dict) -> Optional[AcousticConfig]:
+    """Parse the optional ``acoustic`` block: the fixed acoustic imager camera."""
+    entry = data.get("acoustic")
+    if not entry or not entry.get("enabled", True):
+        return None
+    defaults = AcousticConfig()
+    width, height = entry.get("resolution", defaults.resolution)
+    hfov = float(entry.get("hfov_deg", defaults.hfov_deg))
+    if not 0.0 < hfov < 180.0:
+        raise ValueError(f"acoustic.hfov_deg must be in (0, 180), got {hfov}")
+    return AcousticConfig(
+        position=_as_vec3(entry.get("position", defaults.position)),
+        resolution=(int(width), int(height)),
+        hfov_deg=hfov,
+        topic=str(entry.get("topic", defaults.topic)),
     )
 
 
@@ -227,6 +297,7 @@ def load_robot_config(robot_type: str) -> RobotConfig:
         requires_env_yaml=bool(data.get("requires_env_yaml", True)),
         pivot_assist=bool(data.get("pivot_assist", False)),
         ptz=_load_ptz(data),
+        acoustic=_load_acoustic(data),
     )
 
 
@@ -253,6 +324,8 @@ def load_environment_config(env_type: str) -> EnvironmentConfig:
         remove_prims=data.get("remove_prims"),
         platforms=data.get("platforms"),
         gauges=data.get("gauges"),
+        thermal=data.get("thermal"),
+        pipework=data.get("pipework"),
     )
 
 
